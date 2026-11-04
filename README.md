@@ -14,7 +14,7 @@ No cloud. Zero network calls on the decision path. The audit log contains no pla
 
 ## Status
 
-**v0.1.0 is implemented and locally verified — not yet tagged.** Layer 0 (deterministic rules) works end to end for Claude Code: `check`, `hook`, `install`, `doctor`. Tagging waits on the live-session smoke check; the roadmap continues at [RELEASE.md](RELEASE.md) (Layer 1 chain splitting is next).
+**Layer 0 + Layer 1 are implemented and locally verified (v0.2.0, not yet tagged).** Deterministic rules plus shell-aware chain splitting work end to end for Claude Code: `check`, `hook`, `install`, `doctor`. Tagging waits on the live-session smoke check; the roadmap continues at [RELEASE.md](RELEASE.md) (audit + policy next).
 
 ## Quick start
 
@@ -56,7 +56,7 @@ $ echo $?
 2
 ```
 
-Install guides: [docs/install/claude-code.md](docs/install/claude-code.md). More agents land with their releases (Kilocode v0.5.0, Codex/OpenCode v0.6.0, Cursor/Gemini/Zed v0.8.0).
+Install guides: [docs/install/claude-code.md](docs/install/claude-code.md). The remaining agent matrix — Kilocode, Codex, OpenCode, Cursor, Gemini CLI, Zed (audit-only) — lands together in v0.5.0 behind the adapter conformance suite.
 
 ## Documents
 
@@ -65,7 +65,7 @@ Install guides: [docs/install/claude-code.md](docs/install/claude-code.md). More
 | [PRD.md](PRD.md) | product requirements: problem, architecture, frozen interfaces, roadmap with acceptance criteria |
 | [ROADMAP.md](ROADMAP.md) | release order, reasons, platform dependencies |
 | [RELEASE.md](RELEASE.md) | where the project stands; verified vs. not exercised |
-| [RELEASE/](RELEASE/README.md) | per-release scope, ACs, named tests |
+| [RELEASE/v0.2.0.md](RELEASE/v0.2.0.md) | per-release status, ACs, named tests |
 | [AGENTS.md](AGENTS.md) | onboarding for coding agents working on this repo |
 | [docs/adr/](docs/adr/README.md) | architecture decision records |
 

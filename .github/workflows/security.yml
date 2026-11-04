@@ -18,9 +18,11 @@ permissions:
 jobs:
   # ── Semgrep SAST ────────────────────────────────────────────────────────────
   #
-  # Runs offline against the vendored rules in .semgrep/rules.yaml (registry
-  # packs can 404 in CI). The vendored rules enforce Glove's core invariant:
-  # the guard never executes an agent-proposed command (go-command-injection).
+  # Registry packs for the language and the OWASP basics, IN ADDITION to the
+  # vendored project rules in .semgrep/rules.yaml (five --config lines; keep
+  # all of them — the vendored file extends, never replaces, the packs). The
+  # vendored rules enforce Glove's core invariant: the guard never executes
+  # an agent-proposed command (go-command-injection).
   # SEMGREP_APP_TOKEN is optional: set it in repo secrets to push results to
   # Semgrep Cloud. Without it, findings are printed to the log and uploaded
   # as SARIF.
@@ -39,6 +41,10 @@ jobs:
       - name: Scan
         run: |
           semgrep scan \
+            --config p/golang \
+            --config p/sql-injection \
+            --config p/secrets \
+            --config p/owasp-top-ten \
             --config .semgrep/rules.yaml \
             --exclude bin \
             --exclude dist \

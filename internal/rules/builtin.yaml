@@ -32,9 +32,20 @@ force_confirm:
   - id: chmod_777
     pattern: "\\bchmod\\s+(-R\\s+)?777\\b"
     reason: "world-writable permissions"
-  - id: curl_pipe_shell
+
+# Composition-specific rules (v0.2.0, PRD §7): evaluated per chain segment
+# and per pipe pair ("a | b" joined) by the Layer 1 splitter — a segment-
+# level scan alone cannot see a pipe construct, because splitting removes it.
+composition:
+  - id: pipe_to_shell
+    pattern: "\\|\\s*(ba|z|da|k|a|)sh\\b"
+    reason: "command piped into a shell"
+  - id: curl_pipe_bash
     pattern: "\\b(curl|wget)\\b[^|]*\\|\\s*(ba|z|)sh\\b"
-    reason: "download piped to shell"
+    reason: "download piped into a shell"
+  - id: eval_of_download
+    pattern: "\\b(ba|z|)sh\\s+-c\\s+[\"']?\\$\\("
+    reason: "shell executes the output of a command substitution"
 
 protected_paths:
   - pattern: "**/.ssh/id_*"

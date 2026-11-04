@@ -38,6 +38,7 @@ type PathRule struct {
 type RuleSet struct {
 	HardBlock    []RegexRule
 	ForceConfirm []RegexRule
+	Composition  []RegexRule // v0.2.0: matched per chain segment and per pipe pair
 	Protected    []PathRule
 }
 
@@ -55,6 +56,7 @@ type pathSpec struct {
 type fileSpec struct {
 	HardBlock      []regexSpec `yaml:"hard_block"`
 	ForceConfirm   []regexSpec `yaml:"force_confirm"`
+	Composition    []regexSpec `yaml:"composition"`
 	ProtectedPaths []pathSpec  `yaml:"protected_paths"`
 }
 
@@ -87,6 +89,13 @@ func Load(data []byte) (*RuleSet, error) {
 			return nil, fmt.Errorf("force_confirm %s: bad pattern: %w", s.ID, err)
 		}
 		rs.ForceConfirm = append(rs.ForceConfirm, RegexRule{ID: s.ID, Reason: s.Reason, RE: re})
+	}
+	for _, s := range f.Composition {
+		re, err := regexp.Compile(s.Pattern)
+		if err != nil {
+			return nil, fmt.Errorf("composition %s: bad pattern: %w", s.ID, err)
+		}
+		rs.Composition = append(rs.Composition, RegexRule{ID: s.ID, Reason: s.Reason, RE: re})
 	}
 	for _, s := range f.ProtectedPaths {
 		re, err := globToRegexp(s.Pattern)
@@ -151,6 +160,28 @@ func (rs *RuleSet) FirstForceHit(s string) *RegexRule {
 		}
 	}
 	return nil
+}
+
+// CompositionHits returns every composition rule matching s (a chain segment
+// or a joined pipe pair). Unlike the single-hit rules above, all hits are
+// reported so a construct that breaks several rules shows every reason.
+func (rs *RuleSet) CompositionHits(s string) []RegexRule {
+	var hits []RegexRule
+	for _, r := range rs.Composition {
+		if r.RE.MatchString(s) && !containsRegexRule(hits, r) {
+			hits = append(hits, r)
+		}
+	}
+	return hits
+}
+
+func containsRegexRule(hits []RegexRule, r RegexRule) bool {
+	for _, h := range hits {
+		if h.ID == r.ID {
+			return true
+		}
+	}
+	return false
 }
 
 // PathHits extracts path-looking tokens from s (a command or an input value),

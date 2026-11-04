@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/teochenglim/glove/internal/adapter"
+	"github.com/teochenglim/glove/internal/decision"
 	"github.com/teochenglim/glove/pkg/contract"
 )
 
@@ -37,18 +38,12 @@ func newCheckCmd() *cobra.Command {
 				ToolInput: raw,
 			}
 			start := time.Now()
-			v := eng.Evaluate(in)
+			v, segments := eng.EvaluateDetailed(in)
 			v.LatencyMs = time.Since(start).Milliseconds()
 
 			printVerdict(os.Stdout, v)
 			if explain {
-				hits := eng.Explain(in)
-				if len(hits) == 0 {
-					fmt.Println("  no rule hits (Layer 1 per-segment explanations arrive in v0.2.0)")
-				}
-				for _, h := range hits {
-					fmt.Fprintf(os.Stdout, "  hit: %s\n", h)
-				}
+				printSegments(os.Stdout, segments)
 			}
 			return nil
 		},
@@ -56,6 +51,36 @@ func newCheckCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&explain, "explain", false, "show the rule hits behind the decision")
 	cmd.Flags().BoolVar(&offline, "offline", false, "force offline evaluation (0.1.0 always is; serve lands in v0.4.0)")
 	return cmd
+}
+
+// printSegments renders the Layer 1 decomposition: one line per segment,
+// then any pipe-into-shell pair findings (only visible as a pair).
+func printSegments(w io.Writer, segs []decision.SegmentVerdict) {
+	if len(segs) == 0 {
+		fmt.Fprintln(w, "segments:      none (no rule hits)")
+		return
+	}
+	fmt.Fprintln(w, "segments:")
+	for i, s := range segs {
+		via := ""
+		if s.Via != "" {
+			via = " (" + s.Via + ")"
+		}
+		compound := ""
+		if s.Compound != "" {
+			compound = " [" + s.Compound + "]"
+		}
+		fmt.Fprintf(w, "  [%d] %s%s%s → %s\n", i+1, s.Text, via, compound, s.Decision)
+		for _, r := range s.Reasons {
+			fmt.Fprintf(w, "      - %s\n", r)
+		}
+		if s.Pair != "" {
+			fmt.Fprintf(w, "      pair %q → %s\n", s.Pair, s.PairRisk)
+			for _, r := range s.PairWhy {
+				fmt.Fprintf(w, "      - %s\n", r)
+			}
+		}
+	}
 }
 
 func printVerdict(w io.Writer, v contract.Verdict) {

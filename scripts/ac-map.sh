@@ -15,6 +15,9 @@
 # their tests are written when the release is built.
 set -eu
 cd "$(dirname "$0")/.."
+# comm requires byte-lexicographic order on BOTH sides; pin the locale so the
+# gates behave identically on macOS and Linux CI (caught on the v0.1.0 tag run).
+export LC_ALL=C
 MIN="${AC_MIN_TESTS:-2}"
 fail=0
 
@@ -37,7 +40,8 @@ reqs=$(echo "$all_reqs" | grep -E "^PRD-($(echo "$vers" | tr '.' '\.' | paste -s
 [ -n "$reqs" ] || reqs=""
 
 # Real PRD sections ("## 1. Executive Summary" ...), for §-ref validation.
-sections=$(grep -oE '^## [0-9]+' PRD.md | grep -oE '[0-9]+' | sort -un)
+# Lexicographic (NOT -n): comm below needs both sides in the same byte order.
+sections=$(grep -oE '^## [0-9]+' PRD.md | grep -oE '[0-9]+' | sort -u)
 rows=$(grep -hE '^\| AC[0-9]+\.[0-9]+\.[0-9]+ ' RELEASE/v*.md || true)
 active_rows=$(for f in RELEASE/v*.md; do grep -qE '^\*\*Status:\*\* planned' "$f" && continue; grep -hE '^\| AC[0-9]+\.[0-9]+\.[0-9]+ ' "$f"; done || true)
 [ -n "$rows" ] || { echo "no AC rows in RELEASE/"; exit 1; }
@@ -61,7 +65,7 @@ fi
 while IFS= read -r row; do
   id=$(echo "$row" | grep -oE '^\| AC[0-9]+\.[0-9]+\.[0-9]+' | tr -d '| ')
   row_bullets=$(echo "$row" | grep -oE 'PRD-[0-9]+\.[0-9]+\.0-[0-9]+' | sort -u)
-  secs=$(echo "$row" | grep -oE '§[0-9]+' | tr -d '§' | sort -un)
+  secs=$(echo "$row" | grep -oE '§[0-9]+' | tr -d '§' | sort -u)
   if [ -z "$row_bullets" ] && [ -z "$secs" ]; then
     echo "AC $id cites no PRD anchor (PRD-<ver>-<n> bullet or §<n>)"
     fail=1

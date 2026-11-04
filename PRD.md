@@ -439,9 +439,9 @@ Each `0.X.0` is independently shippable. `1.0.0` is purely the stability marker.
 
 ---
 
-### 0.3.0 — Audit Log
+### 0.3.0 — Audit + Policy
 
-**Theme**: Every decision becomes observable — before intelligence is added.
+**Theme**: Every decision becomes observable and tunable — before intelligence is added.
 
 **Deliverables**
 - `internal/audit/writer.go` — JSONL append, atomic rotate at 10 MB × 5
@@ -450,17 +450,27 @@ Each `0.X.0` is independently shippable. `1.0.0` is purely the stability marker.
 - `glove audit tail`, `glove audit query`, `glove audit export`
 - `--audit-verbose` flag with redaction rules (strip `Authorization`, `token=`, base64 blobs, private key blocks)
 - Record includes `glove_version`, `input_hash`, `latency_ms`, `deterministic`
+- `internal/policy/` — `policy.toml` schema (§5.5), loader, precedence (project `.glove.toml` discovered by walking up from `cwd` > user > built-in)
+- `glove policy validate <file>` — schema errors with line numbers
+- `--fast` mode (Layer 0+1 only, skip Laya) documented with tradeoffs
+- `glove check --policy <file>` for testing a policy against a command
+- Policy-change audit events: `event: "policy_reload"` in the audit log
+- `docs/policy-cookbook.md` with 10+ real examples
 
 **Acceptance tests**
 - [ ] Every `hook` invocation produces exactly one audit record
 - [ ] `audit query --decision block --since 24h` returns correct subset on 10k-record fixture within 200ms
-- [ ] Default log contains **zero** plaintext command bytes for a fixture of 20 known-dangerous commands (verified by grep)
-- [ ] Rotation: 15 MB fixture rotates to `audit.jsonl.1` at 10 MB
-- [ ] Windows: writes to `%LOCALAPPDATA%\glove\audit.jsonl`
+- [ ] Default log contains **zero** plaintext command bytes for a fixture of 20 known-dangerous commands (verified by grep); `--audit-verbose` redacts credentials
+- [ ] Rotation: 15 MB fixture rotates to `audit.jsonl.1` at 10 MB, keeping 5 files
+- [ ] Audit path resolves per-OS (`~/.local/share/glove/` vs `%LOCALAPPDATA%\glove\`)
+- [ ] User adds protected path `~/secrets/` → next live tool call enforced without restarting anything
+- [ ] Invalid policy → `check` and `hook` fail with actionable errors (line numbers from `policy validate`), never silently fall back to defaults
+- [ ] `--fast` mode: latency ≤ 20ms P95, `model_available: false` in Verdict
+- [ ] Project-local `.glove.toml` overrides user-level policy for the same key (explicit test)
 
-**Out of scope**: Laya, `serve`.
+**Out of scope**: Laya, `serve`, new Agents.
 
-**Exit criteria**: M2 ships. Users can observe Layer 0+1 false-positive rate in the wild before Layer 2 lands.
+**Exit criteria**: M2 ships. Users can observe AND tune the Layer 0+1 false-positive rate in the wild before Layer 2 lands.
 
 ---
 
@@ -494,108 +504,45 @@ Each `0.X.0` is independently shippable. `1.0.0` is purely the stability marker.
 
 ---
 
-### 0.5.0 — Kilocode Adapter
+### 0.5.0 — Adapter matrix: Kilocode, Codex, OpenCode, Cursor, Gemini CLI, Zed
 
-**Theme**: Prove the adapter abstraction on a structurally different Agent.
+**Theme**: Complete the declared coverage matrix; the conformance suite is the gate.
 
-**Deliverables**
-- `internal/adapter/kilo.go`
-- `glove install kilo`: generates TS shim into `~/.config/kilo/plugin/glove.ts`; shim calls local `glove serve`
-- Shim handles `tool.execute.before`: `block` throws, `review` throws with a structured review code, `allow` returns nil
-- Audit `agent: "kilo"`
-- Adapter documented in `docs/adapter-authoring.md` as the template for 0.6.0
-
-**Acceptance tests**
-- [ ] `glove install kilo` on clean machine completes in ≤ 2 min per docs
-- [ ] Live Kilocode session: `rm -rf /` blocked, `ls` allowed
-- [ ] Shim generated file is TypeScript-valid (tsc no errors)
-- [ ] Adapter interface unchanged from 0.1.0 (proves abstraction holds for a second Agent)
-
-**Out of scope**: Codex, OpenCode.
-
-**Exit criteria**: M4 ships.
-
----
-
-### 0.6.0 — Codex + OpenCode
-
-**Theme**: Cover the three primary Agents; mature the adapter abstraction.
-
-**Deliverables**
-- `internal/adapter/codex.go` — native `PreToolUse` hook, `updatedInput` passthrough
+**Deliverables** (sequenced inside the release — Kilocode first: structurally different, it proves the abstraction before the rest land)
+- `internal/adapter/kilo.go` — TS shim into `~/.config/kilo/plugin/glove.ts`, calls local `glove serve`; handles `tool.execute.before`: `block` throws, `review` throws with a structured review code, `allow` returns nil; Windows PowerShell shim variant
+- `internal/adapter/codex.go` — native `PreToolUse` hook, `updatedInput` passthrough (config path verified against current docs during implementation)
 - `internal/adapter/opencode.go` — `tool.execute.before` shim (shares Kilocode lineage)
-- `glove list` shows installed Agents + last-seen hook timestamp
-- `glove doctor` — end-to-end verify each installed Agent's hook chain
-- `testdata/conformance/` — adapter conformance suite; each adapter must pass
-- `internal/adapter/adapter_test.go` — shared conformance harness
+- `internal/adapter/cursor.go` — MCP wrapper intercepting MCP tool calls (config path verified)
+- `internal/adapter/gemini.go` — JSON stdin/stdout hook adapter (hook surface verified)
+- `internal/adapter/zed.go` — audit-only (Zed has no pre-tool hook surface); ships with `docs/install/zed.md` explaining the limitation and recommending Zed Tool Permissions (coarse) + Glove audit (fine-grained, post-hoc)
+- `internal/adapter/adapter_test.go` + `testdata/conformance/` — the shared conformance harness every adapter must pass
+- `glove list` — installed agents + hook health; `glove list --matrix` machine-verifies the README coverage matrix
+- `glove doctor` — end-to-end verify each installed agent's hook chain
+- `docs/install/*.md` for every supported agent, each with screenshot; `docs/adapter-authoring.md`
+- Audit `agent:` field populated per adapter
 
 **Acceptance tests**
-- [ ] All three Agents pass conformance suite
-- [ ] `glove doctor` correctly detects a deliberately corrupted hook config
-- [ ] `glove list` shows all installed Agents with green health
-- [ ] Adapter interface unchanged after third implementation
+- [ ] All five new agents pass the conformance suite; the `Adapter` interface is unchanged from 0.1.0
+- [ ] Live Kilocode session: `rm -rf /` blocked, `ls` allowed; clean-machine install ≤ 2 min per docs
+- [ ] Shim generated files are TypeScript-valid (tsc no errors)
+- [ ] `glove doctor` detects a deliberately corrupted hook config on any installed agent
+- [ ] `glove list` shows installed agents with green health; Zed appears as `mode: audit`
+- [ ] Every supported agent has a working install + verify flow per its docs page; README coverage matrix is machine-verified by `glove list --matrix` (no "to be verified" rows)
 
-**Out of scope**: Cursor, Gemini, Zed, policy engine.
+**Out of scope**: production hardening (0.6.0).
 
-**Exit criteria**: M5 ships.
+**Exit criteria**: M4 ships. Coverage matrix complete and machine-verified.
 
 ---
 
-### 0.7.0 — Policy Engine
-
-**Theme**: Users can tune Glove to their environment.
-
-**Deliverables**
-- `internal/policy/` — `policy.toml` schema, loader, precedence (project > user > built-in)
-- `glove policy validate <file>` — schema errors with line numbers
-- `--fast` mode (Layer 0+1 only) documented with tradeoffs
-- Per-project `.glove.toml` discovery by walking up from `cwd`
-- Policy-change audit events: `event: "policy_reload"` in audit log
-- `glove check --policy <file>` for testing policy against a command
-- Documented cookbook at `docs/policy-cookbook.md` with 10+ real examples
-
-**Acceptance tests**
-- [ ] User adds protected path `~/secrets/` → next live tool call enforced without `serve` restart
-- [ ] Invalid policy → `check` and `hook` fail with actionable error, never silently fall back to defaults
-- [ ] `--fast` mode: latency ≤ 20ms P95, `model_available: false` in Verdict
-- [ ] Project-local policy overrides user-level for same key (explicit test)
-
-**Out of scope**: Cursor/Gemini/Zed.
-
-**Exit criteria**: M6 ships.
-
----
-
-### 0.8.0 — Cursor, Gemini CLI, Zed
-
-**Theme**: Complete the declared coverage matrix.
-
-**Deliverables**
-- `internal/adapter/cursor.go` — MCP wrapper that intercepts MCP tool calls
-- `internal/adapter/gemini.go` — JSON stdin/stdout hook adapter
-- `internal/adapter/zed.go` — audit-only integration (Zed has no pre-tool hook surface); ships with `docs/install/zed.md` explaining the limitation and recommending Zed Tool Permissions (coarse) + Glove audit (fine-grained, post-hoc)
-- `docs/install/*.md` for every supported Agent, each with screenshot
-- README coverage matrix matches reality — no "to be verified" rows
-
-**Acceptance tests**
-- [ ] Every supported Agent has a working install + verify flow per its docs page
-- [ ] Zed is documented honestly as audit-only; `glove list` shows Zed as `mode: audit`
-- [ ] Coverage matrix in README is machine-verified by `glove list --matrix` (green/red per Agent)
-
-**Out of scope**: production hardening.
-
-**Exit criteria**: M7 ships.
-
----
-
-### 0.9.0 — Release Candidate: Hardening
+### 0.6.0 — Release Candidate: Hardening
 
 **Theme**: No new features. Fix everything that would block production.
 
 **Deliverables**
-- **Windows-specific fixes**: PowerShell shim for Kilocode, `%LOCALAPPDATA%` audit path, process fork overhead measured and documented, path normalization for `~`
+- **Windows hardening**: `%LOCALAPPDATA%` audit path, process fork overhead measured and documented, path normalization for `~`
 - **Cross-platform CI**: GitHub Actions matrix — macOS `amd64` + `arm64`, Windows `amd64`, Linux `amd64` + `arm64`
-- **Performance regression gate** in CI: `hook` ≤ 15ms, `serve` P95 ≤ 150ms; fail build on regression
+- **Performance regression gates** in CI: `hook` ≤ 15ms, `serve` P95 ≤ 150ms; fail build on regression
 - **Security review**:
   - hook never executes Agent-proposed commands (unit + integration)
   - audit log never leaks plaintext by default (fixture)
@@ -607,15 +554,15 @@ Each `0.X.0` is independently shippable. `1.0.0` is purely the stability marker.
 - **Benchmark suite** published at `benchmarks/` with reproducibility instructions
 
 **Acceptance tests**
-- [ ] All platform CI green for 2 consecutive weeks
+- [ ] All-platform CI green for 2 consecutive weeks
 - [ ] Zero P0/P1 issues open
 - [ ] Signed binaries available for all platforms with published SHA-256
 - [ ] New user (fresh VM) can install and verify any supported Agent in ≤ 5 min following docs (verified by an outside tester)
 - [ ] No P0 from a 24-hour soak test in real Claude Code + Kilocode sessions
 
-**Out of scope**: any feature not in 0.1.0–0.8.0.
+**Out of scope**: any feature not in 0.1.0–0.5.0.
 
-**Exit criteria**: M8 ships as `0.9.0`. This is the production candidate.
+**Exit criteria**: M5 ships as `0.6.0`. This is the production candidate.
 
 ---
 

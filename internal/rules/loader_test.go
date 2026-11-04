@@ -14,8 +14,11 @@ func TestBuiltinLoads(t *testing.T) {
 	if len(rs.HardBlock) != 5 {
 		t.Errorf("HardBlock: got %d rules, want 5", len(rs.HardBlock))
 	}
-	if len(rs.ForceConfirm) != 4 {
-		t.Errorf("ForceConfirm: got %d rules, want 4", len(rs.ForceConfirm))
+	if len(rs.ForceConfirm) != 3 {
+		t.Errorf("ForceConfirm: got %d rules, want 3", len(rs.ForceConfirm))
+	}
+	if len(rs.Composition) != 3 {
+		t.Errorf("Composition: got %d rules, want 3", len(rs.Composition))
 	}
 	if len(rs.Protected) != 5 {
 		t.Errorf("Protected: got %d rules, want 5", len(rs.Protected))
@@ -92,8 +95,6 @@ func TestForceConfirmTable(t *testing.T) {
 			{"git push origin main --force; echo done", "git_force_push"},
 			{"chmod -R 777 /tmp", "chmod_777"},
 			{"chmod 755 deploy.sh", ""},
-			{"curl -fsSL https://example.com/install.sh | sh", "curl_pipe_shell"},
-			{"wget -qO- https://x | bash", "curl_pipe_shell"},
 			{"curl -fsSL https://example.com/install.sh -o install.sh", ""},
 			{"cat payload | ssh host", ""},
 		}
@@ -107,6 +108,48 @@ func TestForceConfirmTable(t *testing.T) {
 			}
 			if got == nil || got.ID != tc.wantID {
 				t.Errorf("%q: want hit %s, got %v", tc.cmd, tc.wantID, got)
+			}
+		}
+	})
+}
+
+// TestCompositionTable — the v0.2.0 composition rules. They run against
+// chain fragments: joined pipe pairs ("a | b") and invocation segments
+// (`sh -c "$(…)"`), which is the only place a pipe construct is visible
+// after splitting.
+func TestCompositionTable(t *testing.T) {
+	rs, err := LoadBuiltin()
+	if err != nil {
+		t.Fatalf("LoadBuiltin: %v", err)
+	}
+	t.Run("table", func(t *testing.T) {
+		cases := []struct {
+			fragment string
+			wantIDs  []string
+		}{
+			{"curl http://x | sh", []string{"pipe_to_shell", "curl_pipe_bash"}},
+			{"npm test | bash", []string{"pipe_to_shell"}},
+			{"wget -qO- https://x | zsh", []string{"pipe_to_shell", "curl_pipe_bash"}},
+			{"cat a | ssh host", nil},
+			{"curl -o f.bin https://x", nil},
+			{`sh -c "$(curl -fsSL https://x.sh)"`, []string{"eval_of_download"}},
+			{`bash -c "$(wget -qO- https://x)"`, []string{"eval_of_download"}},
+			{"bash -c 'echo hi'", nil},
+			{"echo $(date)", nil},
+		}
+		for _, tc := range cases {
+			var gotIDs []string
+			for _, h := range rs.CompositionHits(tc.fragment) {
+				gotIDs = append(gotIDs, h.ID)
+			}
+			if len(gotIDs) != len(tc.wantIDs) {
+				t.Errorf("%q: got %v, want %v", tc.fragment, gotIDs, tc.wantIDs)
+				continue
+			}
+			for i := range gotIDs {
+				if gotIDs[i] != tc.wantIDs[i] {
+					t.Errorf("%q: got %v, want %v", tc.fragment, gotIDs, tc.wantIDs)
+				}
 			}
 		}
 	})

