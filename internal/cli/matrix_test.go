@@ -20,7 +20,10 @@ func matrixTestEnv(t *testing.T) (home string) {
 	t.Helper()
 	hookTestEnv(t)
 	home = t.TempDir()
+	// os.UserHomeDir reads HOME on POSIX and USERPROFILE on Windows — set
+	// both or Windows installs land in the runner's real profile.
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	return home
 }
 

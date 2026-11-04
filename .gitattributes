@@ -1,6 +1,8 @@
 # Byte-stable files: the shim goldens are compared byte-for-byte against
-# rendered output — no line-ending conversion in any checkout.
+# rendered output, and the embedded template feeds that rendering — no
+# line-ending conversion in any checkout.
 testdata/conformance/*.golden -text
+internal/adapter/templates/*.tmpl -text
 
 # Shell scripts and the Makefile break with CRLF; keep them LF everywhere.
 *.sh eol=lf

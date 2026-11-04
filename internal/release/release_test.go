@@ -122,20 +122,23 @@ func TestAC_0_6_1_ci_matrix_covers_platforms(t *testing.T) {
 			t.Errorf("cross-compile matrix missing %q (have %v)", want, have)
 		}
 	}
-	// The streak gate: plain main pushes trigger the matrix, not just tags.
+	// Trigger discipline (maintainer decision, 2026-11-04): tag pushes and
+	// PRs run the matrix; plain main pushes must not — a release lands the
+	// commit on main AND the tag, and the identical matrix would run twice.
 	push, ok := w.On["push"].(map[string]any)
 	if !ok {
 		t.Fatal("ci.yml must trigger on push")
 	}
-	branches, _ := push["branches"].([]any)
-	hasMain := false
-	for _, b := range branches {
-		if b == "main" {
-			hasMain = true
-		}
+	tags, _ := push["tags"].([]any)
+	if len(tags) == 0 {
+		t.Error("ci.yml must trigger on tag pushes (v[0-9]*) — the release gate")
 	}
-	if !hasMain {
-		t.Errorf("ci.yml push branches = %v, want main included so the green streak accrues", branches)
+	if branches, present := push["branches"]; present {
+		for _, b := range branches.([]any) {
+			if b == "main" {
+				t.Error("ci.yml must not trigger on main pushes — the tag run covers the same commit (duplicate matrix runs)")
+			}
+		}
 	}
 }
 

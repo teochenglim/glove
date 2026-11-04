@@ -5,14 +5,14 @@ name: CI
 # short tests — spawn-latency benches are timing-sensitive and Windows
 # process spawn is slower, so `go test -short` keeps them off that runner.
 # The cross-compile job covers the remaining §8 targets (darwin/amd64,
-# linux/arm64) as static builds. Pushes to main run the same matrix so the
-# "CI green" streak accrues between tags.
+# linux/arm64) as static builds. Trigger discipline (maintainer decision,
+# 2026-11-04): the matrix runs per release tag and on PRs — a release push
+# lands the commit on main AND the tag, and running the identical matrix
+# twice per release is pure duplicate compute.
 
 on:
   pull_request:
   push:
-    branches:
-      - main
     tags:
       - 'v[0-9]*'
 
