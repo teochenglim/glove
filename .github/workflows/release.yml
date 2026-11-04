@@ -1,12 +1,13 @@
 name: Release
 
-# Pure-Go cross compile (CGO_ENABLED=0): linux + darwin + windows on the
-# PRD §8 matrix (windows/amd64 joins with the 0.6.0 hardening release; the
-# remaining §8 targets — darwin/amd64, linux/arm64 — are in the same list).
+# Pure-Go cross compile (CGO_ENABLED=0): linux + darwin on amd64 + arm64
+# (the shipped matrix; windows is deferred — removed 2026-11-04, see
+# .github/workflows/ci.yml and PRD §8 — its build stays provable via
+# `make stress`).
 # Every artifact gets a .sha256; the publish job verifies them and ships an
-# aggregated checksums.txt (PRD §7 0.6.0, §9). Signing (macOS notarization,
-# Windows Authenticode) runs from scripts/sign-release.sh with maintainer
-# certificates — see the script header and docs/troubleshooting.md.
+# aggregated checksums.txt (PRD §7 0.6.0, §9). Signing (macOS notarization)
+# runs from scripts/sign-release.sh with maintainer certificates — see the
+# script header and docs/troubleshooting.md.
 
 on:
   push:
@@ -46,7 +47,6 @@ jobs:
           - { goos: linux, goarch: arm64 }
           - { goos: darwin, goarch: amd64 }
           - { goos: darwin, goarch: arm64 }
-          - { goos: windows, goarch: amd64 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
@@ -59,20 +59,16 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           VERSION: ${{ github.ref_name }}
         run: |
-          EXT=""
-          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
           CGO_ENABLED=0 go build -trimpath \
             -ldflags "-s -w -X github.com/teochenglim/glove/internal/version.Version=${VERSION}" \
-            -o "glove-${VERSION}-${GOOS}-${GOARCH}${EXT}" ./cmd/glove
+            -o "glove-${VERSION}-${GOOS}-${GOARCH}" ./cmd/glove
       - name: Package
         env:
           VERSION: ${{ github.ref_name }}
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          EXT=""
-          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
-          NAME="glove-${VERSION}-${GOOS}-${GOARCH}${EXT}"
+          NAME="glove-${VERSION}-${GOOS}-${GOARCH}"
           mkdir -p "dist/${NAME}"
           cp "${NAME}" LICENSE README.md "dist/${NAME}/" 2>/dev/null || cp "${NAME}" "dist/${NAME}/"
           tar -czf "${NAME}.tar.gz" -C dist "${NAME}"

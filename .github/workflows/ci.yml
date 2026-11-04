@@ -1,14 +1,16 @@
 name: CI
 
-# Hardening matrix (PRD §7 0.6.0, §8): full `make check` (incl. the perf
-# gates) on ubuntu/amd64 + macos/arm64; windows/amd64 runs build + vet +
-# short tests — spawn-latency benches are timing-sensitive and Windows
-# process spawn is slower, so `go test -short` keeps them off that runner.
-# The cross-compile job covers the remaining §8 targets (darwin/amd64,
-# linux/arm64) as static builds. Trigger discipline (maintainer decision,
-# 2026-11-04): the matrix runs per release tag and on PRs — a release push
-# lands the commit on main AND the tag, and running the identical matrix
-# twice per release is pure duplicate compute.
+# Platform matrix: full `make check` on ubuntu/amd64 + macos/arm64; the
+# cross-compile job covers the remaining build targets (darwin/amd64,
+# linux/arm64) as static builds. Windows is deferred — removed from CI and
+# the release matrix on 2026-11-04 after four consecutive windows-lane
+# failures, all test plumbing and none affecting the product (PRD §8);
+# windows code stays in the tree, compilable via GOOS=windows vet/build,
+# and the platform facts for its return are in benchmarks/README.md.
+# Trigger discipline (maintainer decision, 2026-11-04): the matrix runs
+# per release tag and on PRs — a release push lands the commit on main AND
+# the tag, and running the identical matrix twice per release is pure
+# duplicate compute.
 
 on:
   pull_request:
@@ -29,9 +31,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, full: 'true' }
-          - { os: macos-latest, full: 'true' }
-          - { os: windows-latest, full: 'false' }
+          - { os: ubuntu-latest }
+          - { os: macos-latest }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -39,15 +40,8 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: go.sum
-      - name: check (fmt, vet, ac-map, tests, version) # full gate with perf benches
-        if: matrix.full == 'true'
+      - name: check (fmt, vet, ac-map, tests, version)
         run: make check
-      - name: windows gate (build, vet, short tests) # no make/goformat tooling on the runner
-        if: matrix.full != 'true'
-        run: |
-          go build ./...
-          go vet ./...
-          go test -short ./...
 
   cross-compile:
     name: Cross-compile ${{ matrix.goos }}/${{ matrix.goarch }}

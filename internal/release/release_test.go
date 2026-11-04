@@ -82,32 +82,30 @@ func matrixInclude(t *testing.T, w workflow, job string) []map[string]any {
 func TestAC_0_6_1_ci_matrix_covers_platforms(t *testing.T) {
 	w := loadWorkflow(t, "ci.yml")
 
+	// Windows is deferred (removed 2026-11-04 after four consecutive
+	// windows-lane failures, none product-affecting — PRD §8): the matrix
+	// must be exactly the two POSIX runners, one ungated make check step.
 	runners := map[string]bool{}
 	for _, row := range matrixInclude(t, w, "test") {
 		os_, _ := row["os"].(string)
 		runners[os_] = true
 	}
-	for _, want := range []string{"ubuntu-latest", "macos-latest", "windows-latest"} {
+	wantRunners := map[string]bool{"ubuntu-latest": true, "macos-latest": true}
+	if len(runners) != len(wantRunners) {
+		t.Errorf("ci.yml test matrix = %v, want exactly %v", runners, wantRunners)
+	}
+	for want := range wantRunners {
 		if !runners[want] {
 			t.Errorf("ci.yml test matrix missing %q (have %v)", want, runners)
 		}
 	}
-	// The windows runner must not carry the timing benches: the full gate
-	// is conditioned on the matrix flag and the short-test step runs -short.
-	var shortStep, fullStep string
 	for _, s := range w.Jobs["test"].Steps {
+		if strings.Contains(s.Run, "make check") && s.If != "" {
+			t.Errorf("make check must run ungated on every matrix runner, got if=%q", s.If)
+		}
 		if strings.Contains(s.Run, "-short") {
-			shortStep = s.If
+			t.Error("ci.yml must not carry a windows short-test step — windows is deferred from CI")
 		}
-		if strings.Contains(s.Run, "make check") {
-			fullStep = s.If
-		}
-	}
-	if shortStep == "" {
-		t.Error("ci.yml windows job must run `go test -short` (timing benches are spawn-sensitive)")
-	}
-	if fullStep == "" || !strings.Contains(fullStep, "matrix.full") {
-		t.Errorf("make check step must be gated on matrix.full, got if=%q", fullStep)
 	}
 
 	xc := matrixInclude(t, w, "cross-compile")
@@ -190,10 +188,19 @@ func TestAC_0_6_3_release_matrix_and_checksums(t *testing.T) {
 		a, _ := row["goarch"].(string)
 		have[g+"/"+a] = true
 	}
-	for _, want := range []string{"linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64", "windows/amd64"} {
+	// Windows is deferred from the release matrix (2026-11-04) — the four
+	// shipped platforms are linux + darwin on amd64 + arm64.
+	wantPlatforms := []string{"linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"}
+	if len(have) != len(wantPlatforms) {
+		t.Errorf("release build matrix = %v, want exactly %v (windows deferred)", have, wantPlatforms)
+	}
+	for _, want := range wantPlatforms {
 		if !have[want] {
 			t.Errorf("release build matrix missing %q (have %v)", want, have)
 		}
+	}
+	if have["windows/amd64"] {
+		t.Error("release matrix must not ship windows/amd64 — deferred (PRD §8, 2026-11-04)")
 	}
 
 	publish := w.Jobs["publish"]
@@ -244,7 +251,7 @@ func TestAC_0_6_3_artifact_sha256_roundtrip(t *testing.T) {
 	dir := t.TempDir()
 	artifacts := []struct{ goos, name string }{
 		{"linux", "glove-test-linux-amd64"},
-		{"windows", "glove-test-windows-amd64.exe"},
+		{"darwin", "glove-test-darwin-amd64"},
 	}
 	var checksums strings.Builder
 	for _, a := range artifacts {

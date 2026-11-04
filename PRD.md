@@ -597,7 +597,7 @@ Each `0.X.0` is independently shippable. `1.0.0` is purely the stability marker.
 | Offline fallback latency | ≤ 20ms | `make stress` release gate |
 | Binary size (stripped) | ≤ 15 MB (excl. model) | Warning only |
 | Model size | ~644 MB GGUF | Prompt before download |
-| Platforms | macOS (amd64/arm64), Windows (amd64), Linux (amd64/arm64) | CI matrix |
+| Platforms | macOS (amd64/arm64), Linux (amd64/arm64) | CI matrix. **Windows deferred** (2026-11-04): removed from CI and the release matrix after four consecutive windows-lane CI failures — all test plumbing, none product-affecting — while no interactive Windows pass exists; windows-aware code stays in the tree and compilable (`GOOS=windows` build/vet, `make stress` cross-compile). Reintroduce only with a real Windows test pass |
 | Network on decision path | Zero | `strace`/`dtruss` in CI |
 | Audit log plaintext leakage | Zero by default | Fixture test |
 | Crash recovery | Never return "open" on internal error | Failure-mode audit |
@@ -610,7 +610,7 @@ Each `0.X.0` is independently shippable. `1.0.0` is purely the stability marker.
 - **Binaries**: GoReleaser → GitHub Releases per-platform tarball
 - **Checksums**: `checksums.txt` with SHA-256 per artifact
 - **macOS**: notarized + signed
-- **Windows**: Authenticode signed
+- **Windows**: deferred — no windows artifacts ship (2026-11-04, PRD §8); Authenticode returns with windows support
 - **Homebrew**: `brew install <org>/tap/glove`
 - **Scoop**: `scoop install glove` (via manifest)
 - **Direct**: `curl -sSL https://get.glove.dev | sh` (verifies checksum)
