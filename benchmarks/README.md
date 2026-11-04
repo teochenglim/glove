@@ -87,7 +87,13 @@ run glove installed for a working day and record the result in
 
 ## Timing notes
 
-- Timing gates run with generous spawn-noise headroom where the PRD budget
-  and CI reality differ (noted in the tests); regressions, not absolute
-  machine speed, are what fails a build.
+- **The load- and timing-heavy gates run via `make stress` (GLOVE_STRESS=1),
+  not in CI** — shared runners turn wall-clock budgets into flakes: the
+  10k-query gate measured 335ms on a 2-vCPU macos runner that a laptop
+  passes at ~50ms, and windows runner spawn measured **57.1ms median**
+  cold start (2026-11-04) against the 15ms budget — a platform fact, not a
+  regression. `make stress` on release hardware is where the §8 budgets
+  are verified; run it before tagging (AGENTS.md checklist).
+- Windows has no timing gate by design (the CI windows job runs
+  `go test -short`); its cold-start number above is informational.
 - Run benches on an otherwise idle machine; the median is the gate.

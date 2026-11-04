@@ -592,9 +592,9 @@ Each `0.X.0` is independently shippable. `1.0.0` is purely the stability marker.
 
 | Metric | Target | Gate |
 |---|---|---|
-| Hook cold-start latency | ≤ 15ms | Fails CI if exceeded |
-| `serve` P95 end-to-end | ≤ 150ms | Fails CI if exceeded |
-| Offline fallback latency | ≤ 20ms | Fails CI if exceeded |
+| Hook cold-start latency | ≤ 15ms | `make stress` release gate (shared CI runners turn wall-clock budgets into flakes — decided 2026-11-04) |
+| `serve` P95 end-to-end | ≤ 150ms | `make stress` release gate |
+| Offline fallback latency | ≤ 20ms | `make stress` release gate |
 | Binary size (stripped) | ≤ 15 MB (excl. model) | Warning only |
 | Model size | ~644 MB GGUF | Prompt before download |
 | Platforms | macOS (amd64/arm64), Windows (amd64), Linux (amd64/arm64) | CI matrix |

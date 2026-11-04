@@ -144,6 +144,7 @@ func TestAC_0_6_1_ci_matrix_covers_platforms(t *testing.T) {
 // linux amd64/arm64, darwin amd64/arm64, windows amd64. Short mode skips
 // (the CI cross-compile job builds two of these on ubuntu natively).
 func TestAC_0_6_1_cross_compile_all_platforms(t *testing.T) {
+	requireStress(t)
 	if testing.Short() {
 		t.Skip("short mode: skips the five cross-compile builds")
 	}
@@ -233,6 +234,7 @@ func TestAC_0_6_3_release_matrix_and_checksums(t *testing.T) {
 // aggregated checksums.txt, then verify every file against both, the same
 // math the publish job performs with sha256sum -c.
 func TestAC_0_6_3_artifact_sha256_roundtrip(t *testing.T) {
+	requireStress(t)
 	if testing.Short() {
 		t.Skip("short mode: skips the artifact builds")
 	}

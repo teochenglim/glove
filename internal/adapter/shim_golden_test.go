@@ -40,6 +40,9 @@ func TestAC_0_5_3_shims_match_tsc_validated_golden(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read golden (generate with GLOVE_UPDATE_GOLDENS=1): %v", err)
 			}
+			// A Windows checkout may carry CRLF (pre-.gitattributes clones);
+			// compare ending-agnostic — content is the contract.
+			want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
 			if !bytes.Equal(got, want) {
 				t.Fatalf("generated shim drifted from the tsc-validated golden (%s) — if the template changed deliberately, regenerate the golden and re-run tsc over it", golden)
 			}

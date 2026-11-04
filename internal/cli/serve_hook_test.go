@@ -84,6 +84,7 @@ func freePortForTest(t *testing.T) int {
 // (hook → serve → calibration; the stub keeps model compute out) stays
 // within the 150ms P95 budget over 100 calls (PRD §7 0.4.0, §8).
 func TestAC_0_4_1_serve_p95_100_calls(t *testing.T) {
+	requireStress(t)
 	if testing.Short() {
 		t.Skip("short mode")
 	}
@@ -115,6 +116,7 @@ func TestAC_0_4_1_serve_p95_100_calls(t *testing.T) {
 // the in-process hook path (client + serve protocol + calibration, no
 // subprocess noise).
 func TestAC_0_4_1_hook_roundtrip_p95(t *testing.T) {
+	requireStress(t)
 	if testing.Short() {
 		t.Skip("short mode")
 	}
@@ -172,6 +174,7 @@ func TestAC_0_4_2_offline_flags_verdict(t *testing.T) {
 // its own 15ms budget — AC0.1.5; the fallback budget is about the fallback
 // path, not the process.)
 func TestAC_0_4_2_offline_fallback_p95(t *testing.T) {
+	requireStress(t)
 	if testing.Short() {
 		t.Skip("short mode")
 	}

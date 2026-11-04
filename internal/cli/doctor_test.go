@@ -40,6 +40,7 @@ func buildGlove(t *testing.T) string {
 // hook path (full process spawn → stdin parse → Layer 0 → render) stays
 // within the PRD §8 budget of 15ms. This test is the CI performance gate.
 func TestAC_0_1_5_hook_cold_start_budget(t *testing.T) {
+	requireStress(t)
 	// Hermetic: pin a dead serve endpoint so the bench measures the spawn +
 	// deterministic path, never model compute from a leftover serve.
 	t.Setenv("GLOVE_SERVE_ENDPOINT", "http://127.0.0.1:1")
@@ -100,6 +101,7 @@ func TestDoctorStatusSmoke(t *testing.T) {
 
 // TestDoctorBenchRealRun exercises the bench through a real built binary.
 func TestDoctorBenchRealRun(t *testing.T) {
+	requireStress(t)
 	if testing.Short() {
 		t.Skip("short mode: skips the spawn bench")
 	}
@@ -190,6 +192,7 @@ func TestAC_0_2_4_chain_latency_budget(t *testing.T) {
 // start of the hook path on the worst-case compound payload stays within
 // the 20ms P95 budget (PRD §7 0.2.0, §8). This is the CI gate.
 func TestAC_0_2_4_hook_p95_compound_payload(t *testing.T) {
+	requireStress(t)
 	if testing.Short() {
 		t.Skip("short mode: skips the spawn bench")
 	}

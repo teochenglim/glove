@@ -15,12 +15,13 @@ glove: a single-binary local guard for AI agent tool calls — sits at the pre-t
 
 ## Commands
 
-- `make check` (= fmt-check, vet, ac-map, test, version-check): must be green before claiming anything works. CI runs exactly this.
+- `make check` (= fmt-check, vet, ac-map, test, version-check): must be green before claiming anything works. CI runs exactly this — fast and deterministic; no wall-clock/load tests.
+- `make stress` (GLOVE_STRESS=1): the load- and timing-heavy tests — §8 budgets (hook cold start, serve P95, offline fallback), the 10k-query gate, the accelerated soak, 5-target cross-compile, artifact roundtrip. Skipped by make check and CI (shared runners turn wall-clock budgets into flakes: a 2-vCPU runner measured the same query 335ms that a laptop passes ~50ms). Run before calling a release ready.
 - `make build` → `./bin/glove` (static, `-trimpath`, version injected) · `make run` · `make race` · `make clean`.
 - `make ac-map` — traceability gate: every PRD §7 acceptance bullet (`PRD-<ver>-<n>`) → AC row → ≥ 2 named tests. `scripts/release-check.sh X.Y.Z` verifies one release.
 - `make audit` (govulncheck) before calling a release ready; `make github-action-bump` refreshes pinned action SHAs.
 - AC tests are package-local Go tests named `func TestAC_<M>_<m>_<n>_<slug>` (≥ 2 per AC, `t.Run("ac_<M>_<m>_<n>_<slug>", …)` allowed inside a parent carrying the same prefix). Fixtures live in `testdata/`. Status `planned` = no tests counted yet; leave `planned` until the release checklist ticks.
-- **Before declaring a release ready:** `make check`; `make audit`; the live-agent smoke check from the release file performed and recorded in `RELEASE.md` §5; docs updated. There is no browser pass — glove has no UI (PRD §4.3); a CLI transcript is the demo.
+- **Before declaring a release ready:** `make check`; `make stress`; `make audit`; the live-agent smoke check from the release file performed and recorded in `RELEASE.md` §5; docs updated. There is no browser pass — glove has no UI (PRD §4.3); a CLI transcript is the demo.
 
 ## Git & release (important)
 

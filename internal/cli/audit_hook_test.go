@@ -172,6 +172,7 @@ func TestAC_0_3_3_verbose_redacts_secrets(t *testing.T) {
 // TestAC_0_3_2_query_10k_under_200ms — AC0.3.2: block/24h query over a
 // 10k-record fixture completes within 200ms (PRD §7 0.3.0).
 func TestAC_0_3_2_query_10k_under_200ms(t *testing.T) {
+	requireStress(t)
 	if testing.Short() {
 		t.Skip("short mode")
 	}
@@ -338,6 +339,7 @@ func TestAC_0_3_8_fast_mode_flags_verdict(t *testing.T) {
 // a fast-mode policy stays within the 20ms P95 budget (PRD §8). The
 // subprocess inherits the test's policy env.
 func TestAC_0_3_8_fast_mode_latency(t *testing.T) {
+	requireStress(t)
 	if testing.Short() {
 		t.Skip("short mode: skips the spawn bench")
 	}

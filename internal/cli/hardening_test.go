@@ -157,6 +157,7 @@ func TestAC_0_6_4_fresh_home_flow_under_five_minutes(t *testing.T) {
 		cmd := exec.Command(bin, args...)
 		cmd.Env = append(os.Environ(),
 			"HOME="+home,
+			"USERPROFILE="+home, // os.UserHomeDir reads it on Windows
 			"GLOVE_CONFIG_DIR="+filepath.Join(home, "cfg"),
 			"GLOVE_DATA_DIR="+filepath.Join(home, "data"),
 		)
@@ -195,6 +196,7 @@ func TestAC_0_6_4_fresh_home_flow_under_five_minutes(t *testing.T) {
 // hard-block payloads cycling) — every exit code matches its payload class
 // and the audit log holds exactly one record per invocation.
 func TestAC_0_6_5_accelerated_soak_inprocess(t *testing.T) {
+	requireStress(t)
 	if testing.Short() {
 		t.Skip("short mode")
 	}
@@ -239,6 +241,7 @@ func TestAC_0_6_5_accelerated_soak_inprocess(t *testing.T) {
 // hook processes in sequence, alternating allow/block payloads — no
 // wedged exits, no state carry-over between runs.
 func TestAC_0_6_5_soak_subprocess_stability(t *testing.T) {
+	requireStress(t)
 	if testing.Short() {
 		t.Skip("short mode: skips the binary build")
 	}
@@ -258,6 +261,7 @@ func TestAC_0_6_5_soak_subprocess_stability(t *testing.T) {
 		cmd.Dir = "../.."
 		cmd.Env = append(os.Environ(),
 			"HOME="+home,
+			"USERPROFILE="+home, // os.UserHomeDir reads it on Windows
 			"GLOVE_CONFIG_DIR="+filepath.Join(home, "cfg"),
 			"GLOVE_DATA_DIR="+filepath.Join(home, "data"),
 		)

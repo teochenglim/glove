@@ -31,6 +31,10 @@ run: ## Run the CLI locally (hook/check/install land with v0.1.0, serve with v0.
 test: ## Run the Go test suite (offline; zero external services on the decision path)
 	go test ./...
 
+.PHONY: stress
+stress: ## Load- and timing-heavy tests (GLOVE_STRESS=1): §8 budgets, soak, 10k query, cross-compile. Run before calling a release ready — skipped by make check/CI (shared runners turn wall-clock budgets into flakes). Packages run serially (-p 1) so benches never compete with parallel builds
+	GLOVE_STRESS=1 go test -count=1 -p 1 ./...
+
 .PHONY: race
 race: ## Run the test suite under the race detector
 	go test -race ./...

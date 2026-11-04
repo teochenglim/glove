@@ -1,0 +1,10 @@
+# Byte-stable files: the shim goldens are compared byte-for-byte against
+# rendered output — no line-ending conversion in any checkout.
+testdata/conformance/*.golden -text
+
+# Shell scripts and the Makefile break with CRLF; keep them LF everywhere.
+*.sh eol=lf
+Makefile eol=lf
+
+# Everything else: normalize to LF in the repository.
+* text=auto
