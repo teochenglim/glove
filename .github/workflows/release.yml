@@ -1,0 +1,97 @@
+name: Release
+
+# Pure-Go cross compile (CGO_ENABLED=0): linux + darwin on amd64 + arm64.
+# Windows joins the matrix with the 0.9.0 hardening release (PRD §7 0.9.0, §8).
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: '1.27.3'
+
+jobs:
+  test:
+    name: Gate (make check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+      - name: tag must match VERSION
+        env:
+          TAG: ${{ github.ref_name }}
+        run: test "$TAG" = "v$(cat VERSION)"
+      - run: make check
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+      - name: Build (CGO_ENABLED=0 cross-compile)
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          CGO_ENABLED=0 go build -trimpath \
+            -ldflags "-s -w -X github.com/teochenglim/glove/internal/version.Version=${VERSION}" \
+            -o "glove-${VERSION}-${GOOS}-${GOARCH}" ./cmd/glove
+      - name: Package
+        env:
+          VERSION: ${{ github.ref_name }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          NAME="glove-${VERSION}-${GOOS}-${GOARCH}"
+          mkdir -p "dist/${NAME}"
+          cp "${NAME}" LICENSE README.md "dist/${NAME}/" 2>/dev/null || cp "${NAME}" "dist/${NAME}/"
+          tar -czf "${NAME}.tar.gz" -C dist "${NAME}"
+          shasum -a 256 "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: glove-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            glove-*.tar.gz
+            glove-*.sha256
+
+  publish:
+    name: GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          NOTES="RELEASE/${TAG}.md"
+          if [ -f "$NOTES" ]; then
+            gh release create "$TAG" artifacts/* --title "$TAG" --notes-file "$NOTES"
+          else
+            gh release create "$TAG" artifacts/* --title "$TAG" --generate-notes
+          fi

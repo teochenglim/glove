@@ -1,0 +1,49 @@
+# Glove Layer 0 builtin rule set (PRD Appendix B seed). Evaluated
+# segment-by-segment once Layer 1 chain splitting lands (v0.2.0); users
+# extend via policy.toml from v0.7.0. Patterns are Go regexp (RE2).
+#
+# RE2 has no negative lookahead, so git_force_push deviates from the PRD's
+# literal sketch: `--force([^a-zA-Z0-9_-]|$)` matches a bare --force and
+# never --force-with-lease. Recorded in RELEASE/v0.1.0.md notes.
+hard_block:
+  - id: rm_root
+    pattern: "rm\\s+(-[a-zA-Z]*f[a-zA-Z]*\\s+)?/(\\s|$)"
+    reason: "recursive delete on /"
+  - id: rm_root_wildcard
+    pattern: "rm\\s+-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\\s+/\\*"
+    reason: "recursive force delete of root contents"
+  - id: mkfs
+    pattern: "\\bmkfs(\\.[a-z0-9]+)?\\b"
+    reason: "filesystem format"
+  - id: dd_to_device
+    pattern: "\\bdd\\b.*\\bof=/dev/(sd|hd|nvme|disk)"
+    reason: "raw write to block device"
+  - id: fork_bomb
+    pattern: ":\\(\\)\\s*\\{\\s*:\\|:&\\s*\\}\\s*;\\s*:"
+    reason: "fork bomb"
+
+force_confirm:
+  - id: sudo
+    pattern: "\\bsudo\\b"
+    reason: "privilege escalation"
+  - id: git_force_push
+    pattern: "\\bgit\\s+push\\b.*\\s--force([^a-zA-Z0-9_-]|$)"
+    reason: "force push without lease"
+  - id: chmod_777
+    pattern: "\\bchmod\\s+(-R\\s+)?777\\b"
+    reason: "world-writable permissions"
+  - id: curl_pipe_shell
+    pattern: "\\b(curl|wget)\\b[^|]*\\|\\s*(ba|z|)sh\\b"
+    reason: "download piped to shell"
+
+protected_paths:
+  - pattern: "**/.ssh/id_*"
+    reason: "SSH private key"
+  - pattern: "**/.aws/credentials"
+    reason: "AWS credentials"
+  - pattern: "**/.env"
+    reason: ".env file"
+  - pattern: "**/.env.*"
+    reason: ".env variant"
+  - pattern: "**/.config/gh/hosts.yml"
+    reason: "GitHub CLI token"

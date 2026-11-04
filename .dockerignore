@@ -1,0 +1,16 @@
+.git
+.github
+.DS_Store
+bin
+dist
+RELEASE
+RELEASE.md
+PRD.md
+ROADMAP.md
+AGENTS.md
+CLAUDE.md
+images
+scripts
+docs
+testdata
+.env

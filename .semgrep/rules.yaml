@@ -1,0 +1,56 @@
+# Vendored Semgrep rules — the semgrep.dev registry packs 404'd in CI for the
+# house reference project, so SAST runs offline against this file. Extend with
+# rules here; never re-add --config p/<pack> (network-dependent).
+rules:
+  - id: go-command-injection
+    message: exec.Command with a variable argument runs untrusted input in a
+      shell. Glove's core invariant is that the guard NEVER executes an
+      agent-proposed command — it only inspects and decides (PRD §10.4).
+      Allowed exceptions (kept here, never widened silently): spawning
+      glove itself (os.Executable(), used by `glove doctor --bench hook`),
+      and test suites driving local tools (go build in the bench tests).
+    severity: ERROR
+    languages: [go]
+    paths:
+      exclude:
+        - '**/*_test.go'
+    patterns:
+      - pattern-either:
+          - pattern: exec.Command($CMD, ...)
+          - pattern: exec.CommandContext($CTX, $CMD, ...)
+      - metavariable-pattern:
+          metavariable: $CMD
+          patterns:
+            - pattern-not: os.Executable()
+
+  - id: go-hardcoded-credential
+    message: A variable named like a credential is assigned a literal — load it
+      from the environment or config; nothing credential-shaped belongs in the
+      repo.
+    severity: ERROR
+    languages: [go]
+    patterns:
+      - pattern: $X = "..."
+      - metavariable-regex:
+          metavariable: $X
+          regex: (?i)^(.*)(password|passwd|secret|token|apikey|api_key)(.*)$
+
+  - id: go-weak-crypto
+    message: md5/sha1 are broken for integrity claims — Glove pins SHA-256
+      (input_hash in audit records, model download verification PRD §7 0.4.0).
+    severity: WARNING
+    languages: [go]
+    pattern-either:
+      - pattern: md5.New()
+      - pattern: sha1.New()
+
+  - id: go-time-now-in-decision
+    message: time.Now() inside internal/decision — decision logic takes an
+      injected clock (cfg.Now) so time-window behaviour is testable; wall
+      clock reads live at the CLI/server/audit boundary only.
+    severity: WARNING
+    languages: [go]
+    paths:
+      include:
+        - internal/decision/
+    pattern: time.Now()
