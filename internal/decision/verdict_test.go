@@ -61,4 +61,19 @@ func TestCombineWorstWins(t *testing.T) {
 			t.Error("combined verdict must lose determinism when any layer is non-deterministic")
 		}
 	})
+
+	// v0.4.0: ModelAvailable is an OR — the deterministic layers never
+	// consult the model, so a Layer 2 presence is what makes it true.
+	t.Run("model_available_or", func(t *testing.T) {
+		deterministicOnly := Combine([]contract.Verdict{allowVerdict(), allowVerdict()})
+		if deterministicOnly.ModelAvailable {
+			t.Error("deterministic-only combine must leave model_available=false")
+		}
+		l2 := allowVerdict()
+		l2.ModelAvailable = true
+		withModel := Combine([]contract.Verdict{allowVerdict(), l2})
+		if !withModel.ModelAvailable {
+			t.Error("a Layer 2 presence must set model_available=true")
+		}
+	})
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -14,7 +15,9 @@ import (
 
 	"github.com/teochenglim/glove/internal/adapter"
 	"github.com/teochenglim/glove/internal/audit"
+	"github.com/teochenglim/glove/internal/decision"
 	"github.com/teochenglim/glove/internal/paths"
+	"github.com/teochenglim/glove/internal/policy"
 	"github.com/teochenglim/glove/internal/version"
 	"github.com/teochenglim/glove/pkg/contract"
 )
@@ -63,6 +66,36 @@ func RunHookWith(stdout, stderr io.Writer, agentName string, stdin io.Reader, op
 	}
 
 	v := rt.Engine.Evaluate(in)
+	v.ModelAvailable = false
+
+	// Layer 2 (PRD §7 0.4.0): standard mode consults serve; fast/offline skip
+	// it. The deterministic verdict always stands on its own — Laya can only
+	// tighten (§4.2, via Combine). Serve unreachable → the offline path: bare
+	// allows escalate per [general] on_model_unavailable (§3.2 fail-closed).
+	if rt.Policy.General.Mode == policy.ModeStandard {
+		timeout := time.Duration(rt.Policy.Laya.HookTimeoutMs) * time.Millisecond
+		if timeout <= 0 {
+			timeout = policy.DefaultHookTimeoutMs * time.Millisecond
+		}
+		client := decision.NewLayaClient(rt.Policy.Laya.Endpoint, timeout)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		l2, err := client.Ask(ctx, in)
+		cancel()
+		if err == nil {
+			v = decision.Combine([]contract.Verdict{v, l2})
+		} else if v.Decision == contract.DecisionAllow {
+			if rt.Policy.General.OnModelUnavailable == "block" {
+				v.Decision = contract.DecisionBlock
+				v.Risk = contract.RiskHigh
+				v.Reasons = append(v.Reasons, "model unavailable — undecidable call fails closed per policy (§3.2)")
+			} else {
+				v.Decision = contract.DecisionReview
+				v.Risk = contract.RiskMedium
+				v.Reasons = append(v.Reasons, "model unavailable — undecidable call defaults to review (§3.2)")
+			}
+		}
+	}
+
 	v.LatencyMs = time.Since(start).Milliseconds()
 	out, err := a.RenderVerdict(v)
 	if err != nil {
@@ -105,6 +138,7 @@ func writeAudit(stderr io.Writer, opts HookOptions, rt *runtime, agent string, i
 		Deterministic:  v.Deterministic,
 		ModelAvailable: v.ModelAvailable,
 		Reasons:        v.Reasons,
+		Questions:      v.Questions,
 		LatencyMs:      v.LatencyMs,
 		GloveVersion:   version.Version,
 	}

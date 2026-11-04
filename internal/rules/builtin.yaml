@@ -7,10 +7,10 @@
 # never --force-with-lease. Recorded in RELEASE/v0.1.0.md notes.
 hard_block:
   - id: rm_root
-    pattern: "rm\\s+(-[a-zA-Z]*f[a-zA-Z]*\\s+)?/(\\s|$)"
+    pattern: "rm\\s+(-[a-zA-Z]*[rf][a-zA-Z]*\\s+)?/(\\s|$)"
     reason: "recursive delete on /"
   - id: rm_root_wildcard
-    pattern: "rm\\s+-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\\s+/\\*"
+    pattern: "rm\\s+-[a-zA-Z]*[rf][a-zA-Z]*\\s+/\\*"
     reason: "recursive force delete of root contents"
   - id: mkfs
     pattern: "\\bmkfs(\\.[a-z0-9]+)?\\b"

@@ -32,6 +32,9 @@ func buildGlove(t *testing.T) string {
 // hook path (full process spawn → stdin parse → Layer 0 → render) stays
 // within the PRD §8 budget of 15ms. This test is the CI performance gate.
 func TestAC_0_1_5_hook_cold_start_budget(t *testing.T) {
+	// Hermetic: pin a dead serve endpoint so the bench measures the spawn +
+	// deterministic path, never model compute from a leftover serve.
+	t.Setenv("GLOVE_SERVE_ENDPOINT", "http://127.0.0.1:1")
 	bin := buildGlove(t)
 	samples, err := benchHook(bin, 12)
 	if err != nil {
@@ -92,6 +95,7 @@ func TestDoctorBenchRealRun(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short mode: skips the spawn bench")
 	}
+	t.Setenv("GLOVE_SERVE_ENDPOINT", "http://127.0.0.1:1")
 	bin := buildGlove(t)
 	samples, err := benchHook(bin, 5)
 	if err != nil {
@@ -103,8 +107,11 @@ func TestDoctorBenchRealRun(t *testing.T) {
 }
 
 // TestExitCodeContract pins the PRD §6 exit-code surface of the hook path
-// beyond the AC pair.
+// beyond the AC pair. Offline policy pins Layer 0+1 semantics (v0.4.0's
+// standard mode escalates bare allows without serve — tested in
+// serve_hook_test.go).
 func TestExitCodeContract(t *testing.T) {
+	hookTestEnv(t)
 	t.Run("review_exits_zero", func(t *testing.T) {
 		var out bytes.Buffer
 		code := RunHook(&out, io.Discard, "claude-code",
@@ -178,6 +185,7 @@ func TestAC_0_2_4_hook_p95_compound_payload(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short mode: skips the spawn bench")
 	}
+	t.Setenv("GLOVE_SERVE_ENDPOINT", "http://127.0.0.1:1")
 	bin := buildGlove(t)
 	samples, err := benchHookPayload(bin, 12, compoundBenchPayload, 2)
 	if err != nil {

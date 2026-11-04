@@ -25,6 +25,37 @@ jobs:
       - name: check (fmt, vet, ac-map, tests, version)
         run: make check
 
+  decision-path-network:
+    name: Decision path is loopback-only
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+      - name: Build
+        run: go build -o bin/glove ./cmd/glove
+      - name: Install strace
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends strace
+      - name: Hook under strace (no serve running)
+        run: |
+          echo '{"tool_name":"Bash","tool_input":{"command":"ls -la"}}' | \
+            strace -f -e trace=network -o /tmp/strace.out ./bin/glove hook claude-code || true
+          echo "--- network syscalls ---"
+          cat /tmp/strace.out
+          # PRD §3.3: zero non-loopback network on the decision path. Loopback
+          # (hook→serve) is the only legal AF_INET/AF_INET6 traffic.
+          if grep -E 'connect\(' /tmp/strace.out | grep -E 'AF_INET' | grep -vE '127\.0\.0\.1|::1|localhost'; then
+            echo "::error::non-loopback connect() on the decision path"
+            exit 1
+          fi
+          if grep -E 'sendto\(|sendmsg\(' /tmp/strace.out | grep -E 'AF_INET' | grep -vE '127\.0\.0\.1|::1'; then
+            echo "::error::non-loopback send on the decision path"
+            exit 1
+          fi
+          echo "decision path is loopback-only ✓"
+
   supply-chain:
     name: Dependency audit
     runs-on: ubuntu-latest

@@ -105,15 +105,24 @@ Wait — RE2 has no lookahead. Do it with two layers instead: keep the builtin `
 hard_block = ['\bsudo\s+rm\b']   # sudo rm: never, not even with confirmation
 ```
 
-## 9. Tune the confidence review band (ready for v0.4.0)
+## 9. Layer 2: point glove at your laya container (and tune the review band)
 
 ```toml
 [laya]
-confidence_review_band = [0.2, 0.9]   # wider band = more reviews, fewer auto-calls
-model_path = "/models/laya-q4.gguf"   # skip the first-run download prompt
+endpoint = "http://127.0.0.1:8080"     # the laya-serve container (loopback only)
+image = "ghcr.io/teochenglim/laya"     # what `glove serve` offers to start
+# image_digest = "sha256:..."          # optional pin — mismatch refuses to start
+hook_timeout_ms = 5000                  # how long the hook waits for a verdict
+confidence_review_band = [0.2, 0.9]     # wider band = more reviews, fewer auto-calls
 ```
 
-The band maps calibrated Laya confidence to decisions: inside → review, below → allow, above → block. Tuning ships with 0.4.0; validation runs today.
+The container itself (english default, multilingual checkpoint shown):
+
+```bash
+docker run -d --name glove-laya -p 127.0.0.1:8080:8080 ghcr.io/teochenglim/laya:multilingual-cpu
+```
+
+Without the container, glove stays on the deterministic layers and undecidable calls follow `on_model_unavailable`. Band mapping: inside → review, outside → confident allow (the noul flags always decide blocks).
 
 ## 10. Point a project at its own pattern set without touching the user file
 

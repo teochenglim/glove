@@ -29,6 +29,10 @@ rules:
       - metavariable-pattern:
           metavariable: $CMD
           patterns:
+            # String-literal commands are source-controlled constants (e.g.
+            # `docker` for the laya container lifecycle, ADR 3) — the
+            # invariant targets variable/agent-proposed commands.
+            - pattern-not: '"..."'
             - pattern-not: os.Executable()
 
   - id: go-hardcoded-credential

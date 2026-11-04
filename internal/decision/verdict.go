@@ -42,14 +42,16 @@ func riskRank(r contract.Risk) int {
 //
 // This function is the invariant's enforcement point: a Layer 2 "allow" is
 // combined with — never substituted for — a Layer 0 "block", so the block
-// survives by construction.
+// survives by construction. ModelAvailable is an OR: "did any layer consult
+// the model" — the deterministic layers never do, so a Layer 2 presence is
+// what makes it true.
 func Combine(vs []contract.Verdict) contract.Verdict {
 	out := contract.Verdict{
 		Decision:       contract.DecisionAllow,
 		Risk:           contract.RiskLow,
 		Confidence:     1,
 		Deterministic:  true,
-		ModelAvailable: true,
+		ModelAvailable: false,
 		Reasons:        []string{},
 	}
 	for _, v := range vs {
@@ -65,8 +67,8 @@ func Combine(vs []contract.Verdict) contract.Verdict {
 		if !v.Deterministic {
 			out.Deterministic = false
 		}
-		if !v.ModelAvailable {
-			out.ModelAvailable = false
+		if v.ModelAvailable {
+			out.ModelAvailable = true
 		}
 		out.Reasons = append(out.Reasons, v.Reasons...)
 		out.Questions = append(out.Questions, v.Questions...)

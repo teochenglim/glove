@@ -480,14 +480,14 @@ Each `0.X.0` is independently shippable. `1.0.0` is purely the stability marker.
 
 **Deliverables**
 - `cmd/glove/serve.go` — `glove serve` daemon on `127.0.0.1:8799`
-- `internal/server/laya_runtime.go` — loads Laya multilingual GGUF (~644 MB), CPU inference, thread-safe
+- `internal/server/laya_runtime.go` — Laya container adapter (ADR 3): probes the laya-serve endpoint, asks the four questions over `POST /v1/systemone`, thread-safe
 - `internal/server/server.go` — `POST /evaluate` accepting `HookInput`, returning `contract.Verdict` (partial)
 - Four typed questions: `destructive`, `exfiltration`, `privilege_escalating`, `blast_radius`
 - Calibration → decision mapping using `policy.laya.confidence_review_band`
 - "Only ever tightens" invariant enforced in `internal/decision/engine.go` + unit test
-- `hook` calls `serve` via HTTP with 200ms timeout; falls back to Layer 0+1 offline path
-- First-run model download prompt: prints size, requires explicit `y`, verifies SHA-256 from release metadata
-- `--model-path` for pre-provisioned GGUF
+- `hook` calls `serve` via HTTP with a bounded timeout (`[laya] hook_timeout_ms`); falls back to Layer 0+1 offline path
+- First-run setup prompt: prints the laya container command (`docker run -p 8080:8080 ghcr.io/teochenglim/laya`), requires explicit `y`; optional `[laya] image_digest` pin verified on start — mismatch refuses (ADR 3)
+- `--laya-endpoint` for a pre-running laya instance
 - Audit `confidence`, `model_available`, `questions` populated
 
 **Acceptance tests**

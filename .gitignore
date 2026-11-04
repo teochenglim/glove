@@ -4,4 +4,7 @@ dist/
 *.test
 coverage.txt
 .env
+.env.*
 .DS_Store
+.cache/
+.playwright-mcp/

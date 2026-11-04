@@ -114,6 +114,15 @@ func (e *Engine) evaluateChain(cmd string) (contract.Verdict, []SegmentVerdict) 
 	var details []SegmentVerdict
 	lastMain := ""
 
+	// Raw-command pass FIRST: the splitter shreds patterns that span
+	// operators (the classic fork bomb `:(){ :|:& };:` becomes fragments),
+	// so the whole command is also matched against the deterministic rules.
+	// Worst-part-wins keeps this strictly additive.
+	raw := e.evaluateSegment(cmd)
+	if raw.Decision != contract.DecisionAllow {
+		partials = append(partials, raw)
+	}
+
 	for _, s := range segs {
 		var segPartials []contract.Verdict
 		segPartials = append(segPartials, e.evaluateSegment(s.Text))

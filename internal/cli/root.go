@@ -76,6 +76,7 @@ Zero network calls on the decision path.`,
 		newDoctorCmd(),
 		newAuditCmd(),
 		newPolicyCmd(),
+		newServeCmd(),
 	)
 	return root
 }

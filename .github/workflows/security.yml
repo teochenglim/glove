@@ -66,6 +66,9 @@ jobs:
   #
   # Scans go.mod / go.sum and the repo for known CVEs. Fails on CRITICAL or HIGH.
   # Complements govulncheck in ci.yml (different advisory sources).
+  # Runs the official trivy CONTAINER (digest-pinned from GHCR) instead of
+  # aquasecurity/setup-trivy: setup-trivy's release-asset download failed on
+  # three consecutive runs (curl exit 6) — registry pulls are the reliable path.
 
   trivy:
     name: Trivy filesystem scan
@@ -73,13 +76,13 @@ jobs:
     permissions:
       contents: read
       security-events: write
+    env:
+      TRIVY_IMAGE: ghcr.io/aquasecurity/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c # v0.76.1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The vuln DB is re-downloaded per run otherwise; GH release downloads
-      # are the flaky part (both v0.1.0/v0.2.0 security failures were DB
-      # fetches, not findings). restore-keys picks the newest cached DB; a
-      # fresh one is saved on success.
+      # The vuln DB is re-downloaded per run otherwise; restore-keys picks the
+      # newest cached DB (inside the mounted workspace so the container sees it).
       - name: Cache Trivy DB
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -88,26 +91,17 @@ jobs:
           restore-keys: trivy-db-${{ runner.os }}-
 
       - name: Scan filesystem (fail on CRITICAL/HIGH CVEs)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          format: table
-          scanners: vuln
-          severity: CRITICAL,HIGH
-          exit-code: '1'
+        run: |
+          docker run --rm -v "$PWD":/workdir -w /workdir "$TRIVY_IMAGE" \
+            fs --cache-dir /workdir/.cache/trivy --severity CRITICAL,HIGH \
+            --scanners vuln --exit-code 1 .
 
       - name: Scan filesystem (SARIF, uploaded to the Security tab)
         if: always()
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          format: sarif
-          output: trivy-fs.sarif
-          scanners: vuln
-          severity: CRITICAL,HIGH
-          exit-code: '0'
+        run: |
+          docker run --rm -v "$PWD":/workdir -w /workdir "$TRIVY_IMAGE" \
+            fs --cache-dir /workdir/.cache/trivy --severity CRITICAL,HIGH \
+            --scanners vuln --format sarif --output /workdir/trivy-fs.sarif .
 
       - name: Upload SARIF to GitHub Security tab
         if: always()
@@ -128,6 +122,8 @@ jobs:
     permissions:
       contents: read
       security-events: write
+    env:
+      TRIVY_IMAGE: ghcr.io/aquasecurity/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c # v0.76.1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -141,27 +137,22 @@ jobs:
       - name: Build image (local only, not pushed)
         run: docker build --build-arg VERSION=security-scan -t glove:scan .
 
+      # The docker socket is mounted so the container can see the locally
+      # built glove:scan image.
       - name: Scan image (fail on CRITICAL/HIGH CVEs)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: glove:scan
-          format: table
-          scanners: vuln
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: '1'
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD":/workdir -w /workdir "$TRIVY_IMAGE" \
+            image --cache-dir /workdir/.cache/trivy --severity CRITICAL,HIGH \
+            --ignore-unfixed --exit-code 1 glove:scan
 
       - name: Scan image (SARIF, uploaded to the Security tab)
         if: always()
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: glove:scan
-          format: sarif
-          output: trivy-image.sarif
-          scanners: vuln
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: '0'
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD":/workdir -w /workdir "$TRIVY_IMAGE" \
+            image --cache-dir /workdir/.cache/trivy --severity CRITICAL,HIGH \
+            --ignore-unfixed --format sarif --output /workdir/trivy-image.sarif glove:scan
 
       - name: Upload SARIF to GitHub Security tab
         if: always()

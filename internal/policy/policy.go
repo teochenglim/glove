@@ -51,10 +51,18 @@ type PathsConf struct {
 	Protected []string `toml:"protected"`
 }
 
+// Laya configures the Layer 2 runtime (ADR 3 — the laya-serve container).
 type Laya struct {
-	ModelPath            string    `toml:"model_path"`
+	Endpoint             string    `toml:"endpoint"`        // default http://127.0.0.1:8080
+	Image                string    `toml:"image"`           // default ghcr.io/teochenglim/laya
+	ImageDigest          string    `toml:"image_digest"`    // optional pin; mismatch refuses to start
+	HookTimeoutMs        int       `toml:"hook_timeout_ms"` // hook's wait for serve; default 5000
+	ModelPath            string    `toml:"model_path"`      // deprecated (GGUF era); ignored
 	ConfidenceReviewBand []float64 `toml:"confidence_review_band"`
 }
+
+// DefaultHookTimeoutMs bounds how long the hook waits for serve.
+const DefaultHookTimeoutMs = 5000
 
 type Agent struct {
 	Enabled bool `toml:"enabled"`
@@ -161,6 +169,18 @@ func mergeInto(p, over *Policy) {
 	if over.Laya.ModelPath != "" {
 		p.Laya.ModelPath = over.Laya.ModelPath
 	}
+	if over.Laya.Endpoint != "" {
+		p.Laya.Endpoint = over.Laya.Endpoint
+	}
+	if over.Laya.Image != "" {
+		p.Laya.Image = over.Laya.Image
+	}
+	if over.Laya.ImageDigest != "" {
+		p.Laya.ImageDigest = over.Laya.ImageDigest
+	}
+	if over.Laya.HookTimeoutMs > 0 {
+		p.Laya.HookTimeoutMs = over.Laya.HookTimeoutMs
+	}
 	if len(over.Laya.ConfidenceReviewBand) > 0 {
 		p.Laya.ConfidenceReviewBand = over.Laya.ConfidenceReviewBand
 	}
@@ -210,6 +230,9 @@ func (p *Policy) Validate() error {
 	band := p.Laya.ConfidenceReviewBand
 	if len(band) != 2 || band[0] < 0 || band[1] > 1 || band[0] >= band[1] {
 		errs = append(errs, fmt.Sprintf("laya.confidence_review_band: %v must be two ascending floats within [0,1]", band))
+	}
+	if p.Laya.HookTimeoutMs < 0 || p.Laya.HookTimeoutMs > 60000 {
+		errs = append(errs, fmt.Sprintf("laya.hook_timeout_ms: %d must be within [0, 60000]", p.Laya.HookTimeoutMs))
 	}
 	for i, pat := range p.Rules.HardBlock {
 		if _, err := regexp.Compile(pat); err != nil {

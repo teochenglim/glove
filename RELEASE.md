@@ -2,7 +2,7 @@
 
 The single place to see where glove stands: what is shipped, what is planned, what each release proves, and how a release is cut. Per-release detail lives in `RELEASE/vX.Y.Z.md` (status, ACs mapped to named tests, built/limits); this file is the readable roll-up and the changelog.
 
-> **Current state:** v0.3.0 ready (audit + policy implemented and locally verified; live Claude Code smoke check + tags pending the user). Statuses below are updated when a release changes state, in the same change as the code.
+> **Current state:** v0.4.0 ready (Layer 2 live against the real laya container; live Claude Code smoke check + tags pending the user). Statuses below are updated when a release changes state, in the same change as the code.
 
 ## 1. Summary
 
@@ -11,7 +11,7 @@ glove is a single-binary local guard for AI agent tool calls. Installed at the `
 | Fact | Value |
 |---|---|
 | Language / runtime | Go 1.27.3 (`go.mod`, CI `GO_VERSION`, `golang:1.27-alpine` builder), single static binary `CGO_ENABLED=0` |
-| Runtime external dependency | none. Zero network calls on the decision path (PRD §3.3). The Laya GGUF model (~644 MB) is downloaded once at first `serve` with SHA-256 verification (v0.4.0) |
+| Runtime external dependency | the laya container (`docker run -p 8080:8080 ghcr.io/teochenglim/laya`, ADR 3) for Layer 2 — optional; absent = deterministic layers, fail-closed (§3.2). Zero non-loopback network on the decision path (§3.3) |
 | Releases planned | 7 (v0.1.0 → v1.0.0, PRD §7 — 0.3.0–0.9.0 consolidated to three releases: 0.3.0 audit+policy, 0.4.0 Laya, 0.5.0 adapter matrix, 0.6.0 hardening) |
 | Requirements / ACs | PRD §7 acceptance bullets are the requirements (ids auto-derived as `PRD-<ver>-<n>` by `make ac-map`); v0.1.0: 5 ACs, each governed by ≥ 2 named tests |
 | Licence | Apache-2.0 |
@@ -39,7 +39,7 @@ Newest first.
 | [v0.1.0](RELEASE/v0.1.0.md) | Claude Code + Layer 0 | ready | 5 (10 tests) | 5/5 (PRD-0.1.0-1…5) |
 | [v0.2.0](RELEASE/v0.2.0.md) | Layer 1: chain splitting | ready | 4 (8 tests) | 4/4 (PRD-0.2.0-1…4) |
 | [v0.3.0](RELEASE/v0.3.0.md) | Audit + policy | ready | 9 (18 tests) | 9/9 (PRD-0.3.0-1…9) |
-| v0.4.0 | Layer 2: Laya + `serve` | planned | - | - |
+| [v0.4.0](RELEASE/v0.4.0.md) | Layer 2: Laya + `serve` | ready | 6 (12 tests) | 6/6 (PRD-0.4.0-1…6, ADR 3) |
 | v0.5.0 | Adapter matrix (kilo → codex/opencode → cursor/gemini/zed) | planned | - | - |
 | v0.6.0 | Release candidate: hardening | planned | - | - |
 | v1.0.0 | Production ready (stability marker) | planned | - | - |
@@ -79,4 +79,5 @@ Layer 0 shipped end to end: `glove check` for manual verdicts, `glove hook claud
 | v0.2.0 Layer 1 (2026-11-04, local macOS arm64) | `make check` + `make race` green; 50-case chain fixture 100% split accuracy + decisions; compound-payload demos (`npm test && curl \| sh` → block with pair findings, `sh -c "$(curl …)"` → eval_of_download, `cat ~/.ssh/id_rsa && ls` → block); subprocess cold-start P95 on the compound payload within 20ms; bench median ~5ms | Same live-session and tag-CI gaps as v0.1.0 (the v0.2.0 tag will be the first run of the fixed workflows: ac-map locale fix, doctor smoke fix, Semgrep registry packs) |
 | Security fixes (2026-11-04, after the v0.2.0 main-push run) | Semgrep (5 registry packs + vendored) 0 findings locally after fixing the vendored rules YAML (colon-in-plain-scalar broke the file) and scoping go-command-injection off `internal/cli/doctor.go` (bench spawns glove itself); Trivy fs 0 and image 0 locally (debian 12.15 + gobinary clean) — the CI failures were DB-download flakiness, mitigated with an actions/cache step on `.cache/trivy` | The fix needs the next CI run on main to confirm (cache restore + packs in CI) |
 | v0.3.0 audit + policy (2026-11-04, local macOS arm64) | `make check` + `make race` green with 18 AC tests; demo transcript: audit tail/query/export, policy validate (syntax error with line/caret), policy_reload event with source attribution, user-protected path blocking `cat ~/secrets/key.pem` (exit 2), `check --policy` project hard-block, doctor policy/audit lines; 20-command zero-plaintext fixture; 10k-query ≤ 200ms; rotation at real 10 MB scale | Live agent session still pending (user); Windows paths unit-tested only; multi-day audit accumulation unexercised |
+| v0.4.0 Layer 2 (2026-11-04, local macOS arm64, real laya container) | `make check` + `make race` green; six ACs × 2 tests; live demo: gray-area exfil denied by the model (regex missed), Chinese exfil sentence blocked via the multilingual checkpoint, `rm -rf /` deny with laya concurring, `git status` → review (calibration flaw found and fixed during the demo), offline §3.2 escalation, audit questions populated; serve-path ≤ 150ms P95 (stub), fallback ≤ 5ms P95 in-process; semgrep 264 rules / 0 findings over the new code | Model wall time ~0.5–2s warm per call (outside the overhead gate, `[laya] hook_timeout_ms` default 5000); AC0.4.4 benchmark measures the deterministic layers on the purpose-built corpus (the semantic re-run needs the model in CI); the strace CI job first runs on the next push; live-session smoke checks still pending the user |
 | Roadmap consolidation (2026-11-04) | PRD §7 rewritten: old 0.3.0–0.9.0 (7 releases) merged into 0.3.0 audit+policy, 0.4.0 Laya (unchanged), 0.5.0 adapter matrix, 0.6.0 hardening; `RELEASE/v0.3.0.md` ACs written before any code; `make ac-map` green against the rewritten PRD | - |

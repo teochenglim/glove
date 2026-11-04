@@ -53,8 +53,12 @@ func TestAC_0_1_2_hook_stdout_verdict(t *testing.T) {
 }
 
 // TestHookFixtureTable runs the shared hook fixture set
-// (testdata/claude_hook_cases.json) through the real hook path.
+// (testdata/claude_hook_cases.json) through the real hook path. The fixture
+// asserts Layer 0+1 semantics, so it pins the offline policy — under
+// v0.4.0's standard mode a bare allow escalates to review without serve
+// (PRD §3.2), which the Layer 2 tests cover.
 func TestHookFixtureTable(t *testing.T) {
+	hookTestEnv(t)
 	raw, err := os.ReadFile("../../testdata/claude_hook_cases.json")
 	if err != nil {
 		t.Fatalf("read fixtures: %v", err)

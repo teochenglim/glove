@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/teochenglim/glove/internal/adapter"
 	"github.com/teochenglim/glove/internal/decision"
+	"github.com/teochenglim/glove/internal/policy"
 	"github.com/teochenglim/glove/pkg/contract"
 )
 
@@ -40,12 +42,34 @@ func newCheckCmd() *cobra.Command {
 			}
 			start := time.Now()
 			v, segments := rt.Engine.EvaluateDetailed(in)
+			v.ModelAvailable = false
+
+			// Manual checks see the same Layer 2 view as the hook — minus the
+			// fail-closed escalation, which is enforcement, not information.
+			if rt.Policy.General.Mode == policy.ModeStandard {
+				timeout := time.Duration(rt.Policy.Laya.HookTimeoutMs) * time.Millisecond
+				if timeout <= 0 {
+					timeout = policy.DefaultHookTimeoutMs * time.Millisecond
+				}
+				client := decision.NewLayaClient(rt.Policy.Laya.Endpoint, timeout)
+				ctx, cancel := context.WithTimeout(context.Background(), timeout)
+				l2, err := client.Ask(ctx, in)
+				cancel()
+				if err == nil {
+					v = decision.Combine([]contract.Verdict{v, l2})
+				} else {
+					fmt.Fprintf(os.Stdout, "laya           unavailable (%v)\n", err)
+				}
+			}
 			v.LatencyMs = time.Since(start).Milliseconds()
 
 			printVerdict(os.Stdout, v)
 			fmt.Fprintf(os.Stdout, "policy         %s (%s)\n", rt.Policy.General.Mode, rt.Sources.Describe())
 			if explain {
 				printSegments(os.Stdout, segments)
+				for _, q := range v.Questions {
+					fmt.Fprintf(os.Stdout, "  laya: %-22s %v (%.2f)\n", q.Question, q.Answer, q.Confidence)
+				}
 			}
 			return nil
 		},
