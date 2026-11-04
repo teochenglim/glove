@@ -61,17 +61,82 @@ type InstallOptions struct {
 	Writer     io.Writer
 }
 
+// Enforcement modes reported in AgentStatus.Mode (PRD §7 0.5.0 — `glove
+// list` marks zed as audit).
+const (
+	ModeHook  = "hook"  // pre-tool enforcement: allow / review / block before execution
+	ModeAudit = "audit" // observation only — the agent exposes no pre-tool hook
+)
+
+// AgentStatus is what `glove list` and `glove doctor` report per agent
+// (PRD §7 0.5.0). Problem is "" for a healthy chain; anything else is a
+// human-readable defect (corrupted config, missing hook entry) that doctor
+// surfaces as unhealthy.
+type AgentStatus struct {
+	Name          string
+	Mode          string // ModeHook or ModeAudit
+	Detected      bool   // the agent exists on this machine
+	ConfigPath    string // where the agent's glove-facing config lives ("" for audit-only agents without one)
+	HookInstalled bool   // glove's hook entry / shim is present
+	Entry         string // the hook entry command (HookEntry())
+	Problem       string // "" = healthy
+}
+
+// StatusReporter is optional: adapters able to introspect their own config
+// implement it. `glove list` and `glove doctor` walk every registered
+// adapter through it — health checking never required changes to the frozen
+// Adapter interface itself (PRD-0.5.0-1).
+type StatusReporter interface {
+	Status() AgentStatus
+}
+
+// StatusOf returns the AgentStatus for any adapter that reports one; the
+// zero-value fallback keeps list/doctor total over every registered adapter.
+func StatusOf(a Adapter) AgentStatus {
+	if sr, ok := a.(StatusReporter); ok {
+		return sr.Status()
+	}
+	st := AgentStatus{Name: a.Name(), Mode: ModeHook, Entry: a.HookEntry()}
+	if installed, cfgPath, err := a.Detect(); err == nil {
+		st.Detected, st.ConfigPath = installed, cfgPath
+	} else {
+		st.Problem = err.Error()
+	}
+	return st
+}
+
 // For returns the adapter for a stable agent name; ok is false for unknown
-// agents. New adapters register here as their releases land (kilo v0.5.0,
-// codex/opencode v0.6.0, cursor/gemini/zed v0.8.0).
+// agents. Adapters register here as they land (PRD §7 0.5.0: kilo first —
+// structurally different — then codex/opencode, then cursor/gemini/zed).
 func For(name string) (Adapter, bool) {
-	if name == ClaudeCodeName {
+	switch name {
+	case ClaudeCodeName:
 		return NewClaude(), true
+	case KiloName:
+		return NewKilo(), true
+	case CodexName:
+		return NewCodex(), true
+	case OpenCodeName:
+		return NewOpenCode(), true
+	case CursorName:
+		return NewCursor(), true
+	case GeminiName:
+		return NewGemini(), true
+	case ZedName:
+		return NewZed(), true
 	}
 	return nil, false
 }
 
 // Names lists registered agent identifiers.
 func Names() []string {
-	return []string{ClaudeCodeName}
+	return []string{
+		ClaudeCodeName,
+		KiloName,
+		CodexName,
+		OpenCodeName,
+		CursorName,
+		GeminiName,
+		ZedName,
+	}
 }

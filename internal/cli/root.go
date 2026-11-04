@@ -1,7 +1,7 @@
 // Package cli wires the frozen PRD §6 command surface onto the engine,
 // policy and audit. Subcommands land with their releases: hook/check/
 // install/doctor in v0.1.0 (+doctor bench v0.2.0 era), audit + policy in
-// v0.3.0, serve in v0.4.0, list in v0.5.0.
+// v0.3.0, serve in v0.4.0, list/uninstall in v0.5.0.
 package cli
 
 import (
@@ -73,6 +73,8 @@ Zero network calls on the decision path.`,
 		newCheckCmd(),
 		newHookCmd(),
 		newInstallCmd(),
+		newUninstallCmd(),
+		newListCmd(),
 		newDoctorCmd(),
 		newAuditCmd(),
 		newPolicyCmd(),

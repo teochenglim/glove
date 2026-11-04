@@ -75,30 +75,39 @@ func runDoctorStatus(w io.Writer) error {
 		fmt.Fprintln(w, "audit          no data dir (no home context)")
 	}
 
-	a, ok := adapter.For(adapter.ClaudeCodeName)
-	if !ok {
-		return errors.New("claude-code adapter missing")
+	// Every registered agent's chain (PRD §7 0.5.0): detection, hook entry,
+	// config health. Same "hook entry" wording in every branch so the lines
+	// stay greppable. A corrupted config is unhealthy and fails the command
+	// (AC0.5.4) — doctor is the thing you run when blocking stops working.
+	unhealthy := 0
+	for _, name := range adapter.Names() {
+		a, ok := adapter.For(name)
+		if !ok {
+			return fmt.Errorf("registered agent %q does not resolve", name)
+		}
+		st := adapter.StatusOf(a)
+		switch {
+		case st.Problem != "":
+			unhealthy++
+			fmt.Fprintf(w, "%-14s config %s — UNHEALTHY: %s\n", st.Name, st.ConfigPath, st.Problem)
+		case st.Mode == adapter.ModeAudit:
+			fmt.Fprintf(w, "%-14s audit mode — no pre-tool hook surface (docs/install/zed.md)\n", st.Name)
+		case !st.Detected:
+			// Same "hook entry" wording in every branch: the status line
+			// stays greppable whether or not the agent exists here.
+			fmt.Fprintf(w, "%-14s config %s — agent not detected (no hook entry)\n", st.Name, st.ConfigPath)
+		case st.HookInstalled:
+			fmt.Fprintf(w, "%-14s config %s — hook entry installed ✓ (%s)\n", st.Name, st.ConfigPath, st.Entry)
+		default:
+			fmt.Fprintf(w, "%-14s config %s — hook entry NOT installed (run `glove install %s`)\n", st.Name, st.ConfigPath, st.Name)
+		}
 	}
-	installed, cfgPath, err := a.Detect()
-	if err != nil {
-		return fmt.Errorf("detect claude-code: %w", err)
+	fmt.Fprintln(w, "layers         L0+L1 deterministic, L2 via laya (serve)")
+	if unhealthy > 0 {
+		fmt.Fprintf(w, "doctor         %d unhealthy agent config(s) — fix above, then re-run\n", unhealthy)
+		return ExitError(1)
 	}
-	if !installed {
-		// Same "hook entry" wording in every branch: the status line stays
-		// greppable whether or not the agent exists on this machine.
-		fmt.Fprintf(w, "claude-code    config %s — agent not detected (no hook entry)\n", cfgPath)
-	} else if claudeHookInstalled(a) {
-		fmt.Fprintf(w, "claude-code    config %s — hook entry installed ✓ (%s)\n", cfgPath, a.HookEntry())
-	} else {
-		fmt.Fprintf(w, "claude-code    config %s — hook entry NOT installed (run `glove install claude-code`)\n", cfgPath)
-	}
-	fmt.Fprintln(w, "layers         L0+L1 deterministic (L2 v0.4.0 per PRD §7)")
 	return nil
-}
-
-func claudeHookInstalled(a adapter.Adapter) bool {
-	c, ok := a.(interface{ HookInstalled() bool })
-	return ok && c.HookInstalled()
 }
 
 // runHookBench measures true cold start: full process spawn of this same

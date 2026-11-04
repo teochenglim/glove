@@ -1,0 +1,1 @@
+{"hook_event_name":"BeforeTool","tool_name":"run_shell_command","tool_input":{"command":"ls -la"},"session_id":"s1","cwd":"/repo","timestamp":"2026-11-04T00:00:00Z"}

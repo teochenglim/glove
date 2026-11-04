@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls -la"},"session_id":"s1","cwd":"/repo","tool_use_id":"t1","turn_id":"u1","model":"gpt-5.2","permission_mode":"default","transcript_path":null}

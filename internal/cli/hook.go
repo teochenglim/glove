@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,15 +42,19 @@ func RunHook(stdout, stderr io.Writer, agentName string, stdin io.Reader) int {
 func RunHookWith(stdout, stderr io.Writer, agentName string, stdin io.Reader, opts HookOptions) int {
 	start := time.Now()
 
+	// Resolve the adapter first: the fail-closed deny must render in the
+	// agent's own envelope (PRD §7 0.5.0 — every shim parses its own verdict
+	// shape). Unknown agent → the Claude envelope is the only sane fallback;
+	// the decision (deny) is what matters, not the wire format.
+	a, adapterOK := adapter.For(agentName)
 	writeDeny := func(reason string) int {
-		stdout.Write(denyJSON(reason))
+		stdout.Write(denyJSON(agentName, a, adapterOK, reason))
 		stdout.Write([]byte("\n"))
 		fmt.Fprintf(stderr, "glove: %s\n", reason)
 		return 2
 	}
 
-	a, ok := adapter.For(agentName)
-	if !ok {
+	if !adapterOK {
 		return writeDeny(fmt.Sprintf("unknown agent %q — failing closed", agentName))
 	}
 	rt, err := loadRuntime("")
@@ -103,6 +108,13 @@ func RunHookWith(stdout, stderr io.Writer, agentName string, stdin io.Reader, op
 	}
 	stdout.Write(out)
 	stdout.Write([]byte("\n"))
+	if v.Decision == contract.DecisionBlock {
+		// Gemini's exit-2 path reads the rejection reason from stderr; the
+		// other agents ignore stderr on a delivered decision. Keep the
+		// reason on the error stream uniformly — it costs nothing and is
+		// what a user piping stdout misses.
+		fmt.Fprintf(stderr, "glove: %s\n", strings.Join(v.Reasons, "; "))
+	}
 
 	// Audit only after the decision is delivered (PRD §4.1: the writer never
 	// blocks the decision path). Failures are stderr warnings — the guard
@@ -189,9 +201,11 @@ func detectPolicyReload(stderr io.Writer, dir string, rt *runtime) {
 	}
 }
 
-// denyJSON renders a fail-closed deny verdict in the Claude Code envelope —
-// the only stdout consumer at that point is the hook protocol.
-func denyJSON(reason string) []byte {
+// denyJSON renders a fail-closed deny verdict in the resolved agent's own
+// envelope; the Claude Code envelope is the fallback for an unknown agent
+// or an unrenderable verdict — the decision (deny) is what matters then,
+// not the wire format.
+func denyJSON(agentName string, a adapter.Adapter, resolved bool, reason string) []byte {
 	v := contract.Verdict{
 		Decision:       contract.DecisionBlock,
 		Risk:           contract.RiskCritical,
@@ -201,15 +215,19 @@ func denyJSON(reason string) []byte {
 		Reasons:        []string{reason},
 		AuditID:        uuid.NewString(),
 	}
-	a, ok := adapter.For(adapter.ClaudeCodeName)
-	if !ok {
-		return []byte(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"glove internal error"}}`)
+	claudeEnvelope := []byte(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"glove internal error"}}`)
+	if resolved {
+		if out, err := a.RenderVerdict(v); err == nil {
+			return out
+		}
+		return claudeEnvelope
 	}
-	out, err := a.RenderVerdict(v)
-	if err != nil {
-		return []byte(`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"glove internal error"}}`)
+	if fallback, ok := adapter.For(adapter.ClaudeCodeName); ok && agentName != adapter.ClaudeCodeName {
+		if out, err := fallback.RenderVerdict(v); err == nil {
+			return out
+		}
 	}
-	return out
+	return claudeEnvelope
 }
 
 func newHookCmd() *cobra.Command {

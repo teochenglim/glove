@@ -1,0 +1,1 @@
+{"hook_event_name":"preToolUse","tool_name":"Bash","tool_input":{"command":"ls -la"},"conversation_id":"c1","cwd":"/repo","cursor_version":"2.1.0"}

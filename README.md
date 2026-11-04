@@ -2,7 +2,7 @@
 
 > *The LLM has a hand — tool calling. Glove is what it wears to act safely.*
 
-glove is a single-binary local guard for AI agent tool calls. Installed at the `PreToolUse` hook point of your coding agent (Claude Code first; Kilocode, Codex, OpenCode, Cursor, Gemini CLI and Zed on the roadmap), it intercepts every tool invocation **before execution**, makes a three-way decision — **allow / review / block** — and writes an immutable audit record.
+glove is a single-binary local guard for AI agent tool calls. Installed at the pre-tool-use hook point of your coding agent (Claude Code, Kilo, Codex, OpenCode, Cursor, Gemini CLI — with Zed covered in audit mode), it intercepts every tool invocation **before execution**, makes a three-way decision — **allow / review / block** — and writes an immutable audit record.
 
 The decision engine is layered, and the invariant that separates glove from regex guardrails: **the guard only ever tightens.**
 
@@ -76,7 +76,21 @@ $ echo $?
 2
 ```
 
-Install guides: [docs/install/claude-code.md](docs/install/claude-code.md). The remaining agent matrix — Kilocode, Codex, OpenCode, Cursor, Gemini CLI, Zed (audit-only) — lands together in v0.5.0 behind the adapter conformance suite.
+Install guides: [docs/install/claude-code.md](docs/install/claude-code.md) and one per agent below. The coverage matrix is machine-verified — `glove list --matrix --check` fails if this table drifts from the adapters.
+
+<!-- coverage-matrix:begin -->
+| Agent | Enforcement | Mechanism | Install |
+|---|---|---|---|
+| claude-code | block / review / allow before execution | `PreToolUse` command hook → `glove hook claude-code` | `glove install claude-code` |
+| kilo | block / review / allow before execution | plugin shim (`tool.execute.before`, throws on block/review) → `glove hook kilo` | `glove install kilo` |
+| codex | block / review / allow before execution | `PreToolUse` command hook (Claude-compatible protocol) → `glove hook codex` | `glove install codex` |
+| opencode | block / review / allow before execution | plugin shim (`tool.execute.before`, V1 plugin API) → `glove hook opencode` | `glove install opencode` |
+| cursor | block / review (as deny — no enforced ask) / allow before execution | `preToolUse` command hook with `failClosed: true` → `glove hook cursor` | `glove install cursor` |
+| gemini | block / review (as deny — no ask verb) / allow before execution | `BeforeTool` command hook (JSON deny + exit 2) → `glove hook gemini` | `glove install gemini` |
+| zed | audit only — Zed has no pre-tool hook surface | `glove hook zed` evaluates a tool call on demand + the audit log | `glove install zed` (no config change) |
+<!-- coverage-matrix:end -->
+
+Every adapter passes the same conformance suite (`docs/adapter-authoring.md` is the contract for adding one).
 
 ## Documents
 

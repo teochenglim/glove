@@ -30,6 +30,59 @@ func ClaudeSettingsPath() string {
 	return filepath.Join(h, ".claude", "settings.json")
 }
 
+// KiloPluginPath is the glove plugin shim for Kilo
+// (~/.config/kilo/plugin/glove.ts, PRD §11).
+func KiloPluginPath() string {
+	return homeJoin(".config", "kilo", "plugin", "glove.ts")
+}
+
+// OpenCodePluginPath is the glove plugin shim for OpenCode
+// (~/.config/opencode/plugin/glove.ts, PRD §11).
+func OpenCodePluginPath() string {
+	return homeJoin(".config", "opencode", "plugin", "glove.ts")
+}
+
+// CodexConfigPath is the Codex CLI config file (~/.codex/config.toml).
+func CodexConfigPath() string {
+	return homeJoin(".codex", "config.toml")
+}
+
+// CodexHooksPath is the Codex CLI hooks file (~/.codex/hooks.json) — the
+// Claude-Code-shaped hook config Codex merges with any [hooks] tables in
+// config.toml.
+func CodexHooksPath() string {
+	return homeJoin(".codex", "hooks.json")
+}
+
+// CursorHooksPath is the Cursor user-level hooks configuration
+// (~/.cursor/hooks.json). Cursor's MCP config (~/.cursor/mcp.json) is a
+// different file glove does not manage.
+func CursorHooksPath() string {
+	return homeJoin(".cursor", "hooks.json")
+}
+
+// GeminiSettingsPath is the Gemini CLI user settings (~/.gemini/settings.json).
+func GeminiSettingsPath() string {
+	return homeJoin(".gemini", "settings.json")
+}
+
+// ZedSettingsPath is the Zed user settings (~/.config/zed/settings.json on
+// Linux, ~/.zed/settings.json on macOS).
+func ZedSettingsPath() string {
+	if runtime.GOOS == "darwin" {
+		return homeJoin(".zed", "settings.json")
+	}
+	return homeJoin(".config", "zed", "settings.json")
+}
+
+func homeJoin(elem ...string) string {
+	h := HomeDir()
+	if h == "" {
+		return ""
+	}
+	return filepath.Join(append([]string{h}, elem...)...)
+}
+
 // DataDir is glove's state root: ~/.local/share/glove on macOS/Linux
 // (XDG_DATA_HOME honoured), %LOCALAPPDATA%\glove on Windows (PRD §5.4).
 func DataDir() string {
