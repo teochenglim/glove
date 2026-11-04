@@ -146,8 +146,11 @@ func TestAC_0_6_4_fresh_home_flow_under_five_minutes(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short mode: skips the binary build")
 	}
-	home := matrixTestEnv(t)
+	// Build BEFORE the HOME override (see buildGlove): a `go build` under a
+	// throwaway HOME writes its module cache into the temp dir and breaks
+	// TempDir cleanup.
 	bin := buildGlove(t)
+	home := matrixTestEnv(t)
 
 	run := func(args ...string) string {
 		t.Helper()
@@ -239,8 +242,9 @@ func TestAC_0_6_5_soak_subprocess_stability(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short mode: skips the binary build")
 	}
-	home := matrixTestEnv(t)
+	// Build BEFORE the HOME override (see buildGlove).
 	bin := buildGlove(t)
+	home := matrixTestEnv(t)
 	payloads := []struct {
 		stdin string
 		want  int

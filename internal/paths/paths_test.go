@@ -36,20 +36,22 @@ func TestAC_0_3_5_path_resolution_per_os(t *testing.T) {
 		}
 		for _, tc := range cases {
 			got := dataDirFor(tc.goos, tc.home, tc.xdgData, "")
-			if got != tc.want {
+			// Separator-agnostic: on Windows filepath.Join emits backslashes
+			// while the wants are written slash-shaped.
+			if filepath.ToSlash(got) != tc.want {
 				t.Errorf("dataDirFor(%s,%s,%s) = %q, want %q", tc.goos, tc.home, tc.xdgData, got, tc.want)
 			}
 		}
 	})
 	t.Run("audit_join", func(t *testing.T) {
 		d := dataDirFor("darwin", "/Users/u", "", "")
-		if want := filepath.Join(d, "audit.jsonl"); want != "/Users/u/.local/share/glove/audit.jsonl" {
+		if want := filepath.Join(d, "audit.jsonl"); filepath.ToSlash(want) != "/Users/u/.local/share/glove/audit.jsonl" {
 			t.Errorf("audit path = %q, want the §5.4 location", want)
 		}
 	})
 	t.Run("config_dir", func(t *testing.T) {
 		base := "/Users/u/.config"
-		if want := filepath.Join(base, "glove", "policy.toml"); want != "/Users/u/.config/glove/policy.toml" {
+		if want := filepath.Join(base, "glove", "policy.toml"); filepath.ToSlash(want) != "/Users/u/.config/glove/policy.toml" {
 			t.Errorf("policy path = %q, want the §5.5 location", want)
 		}
 	})

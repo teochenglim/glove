@@ -340,6 +340,23 @@ func TestAC_0_5_6_matrix_matches_readme(t *testing.T) {
 			t.Errorf("output = %q, want a drift report", buf.String())
 		}
 	})
+	t.Run("ac_0_5_6_readme_matches_crlf", func(t *testing.T) {
+		// A Windows checkout carries CRLF; the verification must be
+		// ending-agnostic (fixed after the v0.6.0 windows CI run).
+		fixture := filepath.Join(t.TempDir(), "README.md")
+		crlf := strings.ReplaceAll(renderMatrix(), "\n", "\r\n")
+		doc := "# glove\n\n" + matrixBegin + "\r\n" + crlf + "\r\n" + matrixEnd + "\n"
+		if err := os.WriteFile(fixture, []byte(doc), 0o600); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		prev := readmePath
+		readmePath = fixture
+		t.Cleanup(func() { readmePath = prev })
+		var buf bytes.Buffer
+		if err := runMatrix(&buf, true); err != nil {
+			t.Fatalf("CRLF README must verify: %v\n%s", err, buf.String())
+		}
+	})
 	t.Run("ac_0_5_6_no_to_be_verified_rows", func(t *testing.T) {
 		table := renderMatrix()
 		if strings.Contains(strings.ToLower(table), "to be verified") || strings.Contains(strings.ToLower(table), "planned") {

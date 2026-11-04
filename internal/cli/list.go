@@ -169,7 +169,9 @@ func runMatrix(w io.Writer, check bool) error {
 		return fmt.Errorf("%s has no %s … %s block — cannot verify the coverage matrix", readmePath, matrixBegin, matrixEnd)
 	}
 	inDoc := doc[begin+len(matrixBegin) : end]
-	// Trim the surrounding newlines the README keeps for readability.
+	// Normalize line endings (a Windows checkout carries CRLF) and trim the
+	// surrounding newlines the README keeps for readability.
+	inDoc = strings.ReplaceAll(inDoc, "\r\n", "\n")
 	inDoc = strings.Trim(inDoc, "\n")
 	table = strings.TrimRight(table, "\n")
 	if inDoc != table {
