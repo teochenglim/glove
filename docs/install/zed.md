@@ -1,5 +1,7 @@
 # Zed + glove — audit mode (honest limits)
 
+Time: ~1 minute (audit mode — nothing is written to your Zed config).
+
 Zed has **no pre-tool hook surface**. As of 2026-11 there is no extension
 or config event in Zed that intercepts an agent tool call before execution
 — the docs have no hooks pages, and the extension API (Rust/WASM) covers

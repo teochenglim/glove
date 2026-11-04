@@ -1,8 +1,18 @@
 name: CI
 
+# Hardening matrix (PRD §7 0.6.0, §8): full `make check` (incl. the perf
+# gates) on ubuntu/amd64 + macos/arm64; windows/amd64 runs build + vet +
+# short tests — spawn-latency benches are timing-sensitive and Windows
+# process spawn is slower, so `go test -short` keeps them off that runner.
+# The cross-compile job covers the remaining §8 targets (darwin/amd64,
+# linux/arm64) as static builds. Pushes to main run the same matrix so the
+# "CI green" streak accrues between tags.
+
 on:
   pull_request:
   push:
+    branches:
+      - main
     tags:
       - 'v[0-9]*'
 
@@ -14,7 +24,39 @@ env:
 
 jobs:
   test:
-    name: Build & test
+    name: Check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, full: 'true' }
+          - { os: macos-latest, full: 'true' }
+          - { os: windows-latest, full: 'false' }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+      - name: check (fmt, vet, ac-map, tests, version) # full gate with perf benches
+        if: matrix.full == 'true'
+        run: make check
+      - name: windows gate (build, vet, short tests) # no make/goformat tooling on the runner
+        if: matrix.full != 'true'
+        run: |
+          go build ./...
+          go vet ./...
+          go test -short ./...
+
+  cross-compile:
+    name: Cross-compile ${{ matrix.goos }}/${{ matrix.goarch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: darwin, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -22,8 +64,13 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: go.sum
-      - name: check (fmt, vet, ac-map, tests, version)
-        run: make check
+      - name: Static build (CGO_ENABLED=0)
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          CGO_ENABLED=0 go build -trimpath -o /dev/null ./cmd/glove
+          echo "${{ matrix.goos }}/${{ matrix.goarch }} static build ok"
 
   decision-path-network:
     name: Decision path is loopback-only

@@ -227,9 +227,10 @@ func containsRegexRule(hits []RegexRule, r RegexRule) bool {
 }
 
 // PathHits extracts path-looking tokens from s (a command or an input value),
-// expands `~` and `$HOME`, and returns every protected rule that matches.
-// It is deliberately literal: composition tricks are Layer 1/2 territory
-// (v0.2.0/v0.4.0); Layer 0 only claims plain, visible paths.
+// expands `~`, `$HOME`, `%USERPROFILE%` and `%LOCALAPPDATA%` (Windows hardening,
+// §8), and returns every protected rule that matches. It is deliberately
+// literal: composition tricks are Layer 1/2 territory (v0.2.0/v0.4.0); Layer 0
+// only claims plain, visible paths.
 func (rs *RuleSet) PathHits(s string) []PathRule {
 	home := func() string {
 		h, err := os.UserHomeDir()
@@ -238,6 +239,7 @@ func (rs *RuleSet) PathHits(s string) []PathRule {
 		}
 		return h
 	}()
+	localAppData := os.Getenv("LOCALAPPDATA")
 	var hits []PathRule
 	seen := map[string]bool{}
 	try := func(p string) {
@@ -263,9 +265,18 @@ func (rs *RuleSet) PathHits(s string) []PathRule {
 				t = filepath.Join(home, strings.TrimPrefix(t, "~"))
 			}
 			t = strings.ReplaceAll(t, "$HOME", home)
+			t = strings.ReplaceAll(t, `%USERPROFILE%`, home)
+		}
+		if localAppData != "" {
+			t = strings.ReplaceAll(t, `%LOCALAPPDATA%`, localAppData)
 		}
 		try(tok)
 		try(t)
+		// Windows tokens arrive with backslash separators; protected globs
+		// are slash-shaped. Normalize separators for an extra candidate —
+		// string-level, so the behavior is identical on every OS, and it
+		// only ever adds candidates (tighten-only).
+		try(strings.ReplaceAll(t, "\\", "/"))
 	}
 	return hits
 }
@@ -292,10 +303,13 @@ func candidatePaths(s string) []string {
 	})
 	var out []string
 	for _, f := range fields {
-		// Path-like: contains a slash, home-relative, or a dotfile reference
-		// such as `.env` (protected globs match bare names too).
+		// Path-like: contains a slash (either separator), is home-relative
+		// in POSIX or Windows env-var form, or is a dotfile reference such
+		// as `.env` (protected globs match bare names too).
 		dotfile := strings.HasPrefix(f, ".") && f != "." && f != ".."
-		if strings.Contains(f, "/") || strings.HasPrefix(f, "~") || strings.HasPrefix(f, "$HOME") || dotfile {
+		if strings.Contains(f, "/") || strings.Contains(f, "\\") ||
+			strings.HasPrefix(f, "~") || strings.HasPrefix(f, "$HOME") ||
+			strings.HasPrefix(f, "%") || dotfile {
 			out = append(out, f)
 		}
 	}

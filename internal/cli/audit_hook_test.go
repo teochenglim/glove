@@ -198,8 +198,8 @@ func TestAC_0_3_2_query_10k_under_200ms(t *testing.T) {
 	if len(got) != 1000 {
 		t.Fatalf("query returned %d records, want the 1000 blocks", len(got))
 	}
-	if elapsed > 200*time.Millisecond {
-		t.Fatalf("10k-record query took %v, budget 200ms", elapsed)
+	if elapsed > 200*time.Millisecond*timingBudgetScale {
+		t.Fatalf("10k-record query took %v, budget 200ms (x%d under race instrumentation)", elapsed, timingBudgetScale)
 	}
 }
 

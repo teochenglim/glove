@@ -1,0 +1,93 @@
+# glove benchmark suite
+
+Reproducibility instructions for every performance claim in the release
+files (PRD §7 0.6.0: benchmark suite published with reproducibility
+instructions). All gates live in CI via `make check`; the commands below
+reproduce them locally.
+
+Prereqs: Go 1.27.3, `make build` → `./bin/glove`. No external services —
+pin a dead serve endpoint (`GLOVE_SERVE_ENDPOINT=http://127.0.0.1:1`) so
+benches never measure leftover model compute.
+
+## 1. Hook cold start (PRD §8: ≤ 15ms median)
+
+True cold start: full process spawn through the hook path (stdin parse →
+Layer 0+1 → render), 2 discarded warmups absorb first-exec artifacts.
+
+```bash
+GLOVE_SERVE_ENDPOINT=http://127.0.0.1:1 ./bin/glove doctor --bench hook
+# hook cold-start over 20 runs: min …  median …  p95 …  max …
+# budget: 15.0ms (median) — PASS
+```
+
+Measured (2026-11-04, MacBook Pro M1, macOS arm64, 40 runs): **min 7.5ms /
+median 8.0ms / p95 9.1ms**. This is the fork-overhead measurement for §8 —
+the dominant cost is process spawn + Go runtime init, not the decision
+(engine evaluation is sub-millisecond). Windows numbers: pending the
+Windows CI runner / maintainer hardware (the same command works there;
+`go test -short` keeps the bench off Windows CI to avoid spawn-latency
+flakes). CI gate: `TestAC_0_1_5_hook_cold_start_budget`.
+
+Compound-payload variant (Layer 1 worst case, §7 0.2.0 budget 20ms P95):
+`TestAC_0_2_4_hook_p95_compound_payload` (subprocess gate) and
+`TestAC_0_2_4_chain_latency_budget` (in-process tripwire).
+
+## 2. Serve-path overhead (PRD §8: ≤ 150ms P95, model compute excluded)
+
+100-call fixture through hook → serve → calibration with the stub runtime:
+
+```
+go test ./internal/cli/ -run 'TestAC_0_4_1' -count=1 -v
+```
+
+Real-model wall time (~0.5–2s warm per four-question call on CPU) is model
+compute, deliberately outside this gate — see ADR 3.
+
+## 3. Offline fallback (PRD §8: ≤ 20ms; mechanism gate ≤ 5ms P95)
+
+```
+go test ./internal/decision/ ./internal/cli/ -run 'TestAC_0_4_2|TestAC_0_3_8' -count=1 -v
+```
+
+## 4. Adversarial block rate (§7 0.4.0: ≥ 90% on the deterministic layers)
+
+```
+go test ./internal/decision/ -run 'TestAC_0_4_4' -count=1 -v
+```
+
+Corpus: `testdata/adversarial_benchmark.jsonl` (100 samples). The semantic
+(model-in-the-loop) half needs a live laya container — future work,
+recorded in `RELEASE/v0.4.0.md`.
+
+## 5. Audit query under load (§7 0.3.0: 10k records ≤ 200ms)
+
+```
+go test ./internal/cli/ -run 'TestAC_0_3_2_query_10k' -count=1 -v
+```
+
+## 6. Soak (§7 0.6.0: no P0 in 24h — accelerated proxy here)
+
+Accelerated soak as CI tests: 2,000 mixed in-process decisions + 50 real
+subprocess hooks with audit integrity checks:
+
+```
+go test ./internal/cli/ -run 'TestAC_0_6_5' -count=1 -v
+```
+
+Longer mechanical soak (between the accelerated gate and a real 24h live
+session), ~30–60 min of continuous hook processes:
+
+```bash
+./benchmarks/soak.sh [iterations]   # default 500; exit non-zero on any deviation
+```
+
+The true 24h soak in live Claude Code + Kilo sessions is a human gate —
+run glove installed for a working day and record the result in
+`RELEASE.md` §5.
+
+## Timing notes
+
+- Timing gates run with generous spawn-noise headroom where the PRD budget
+  and CI reality differ (noted in the tests); regressions, not absolute
+  machine speed, are what fails a build.
+- Run benches on an otherwise idle machine; the median is the gate.

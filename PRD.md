@@ -549,7 +549,7 @@ Each `0.X.0` is independently shippable. `1.0.0` is purely the stability marker.
   - model download verifies SHA-256
   - signed binaries with checksum file
 - **Error-handling audit**: every failure path has a defined decision (never silent open gate); documented in `docs/failure-modes.md`
-- **Signed releases**: GoReleaser config, macOS notarization, Windows Authenticode
+- **Signed releases**: the GitHub Actions release matrix is the vehicle (GoReleaser evaluated at 0.6.0 and not adopted — the existing workflow is the release path; decision recorded 2026-11-04), macOS notarization, Windows Authenticode
 - **Docs completeness**: every Agent install guide ≤ 5 min; troubleshooting page; policy cookbook; `PRD.md` published in repo
 - **Benchmark suite** published at `benchmarks/` with reproducibility instructions
 

@@ -2,6 +2,7 @@ package paths
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -50,6 +51,56 @@ func TestAC_0_3_5_path_resolution_per_os(t *testing.T) {
 		base := "/Users/u/.config"
 		if want := filepath.Join(base, "glove", "policy.toml"); want != "/Users/u/.config/glove/policy.toml" {
 			t.Errorf("policy path = %q, want the §5.5 location", want)
+		}
+	})
+}
+
+// TestAC_0_6_6_windows_paths_resolve — AC0.6.6: the full Windows surface
+// resolves — audit/data root, config root, and the per-agent config paths
+// under %USERPROFILE% (PRD §5.4/§5.5, §8 hardening). Assertions are built
+// with filepath.Join so they hold on any dev OS.
+func TestAC_0_6_6_windows_paths_resolve(t *testing.T) {
+	t.Run("audit_and_policy", func(t *testing.T) {
+		d := dataDirFor("windows", `C:\Users\u`, "", `C:\Users\u\AppData\Local`)
+		if want := filepath.Join(`C:\Users\u\AppData\Local`, "glove", "audit.jsonl"); filepath.ToSlash(d+"/audit.jsonl") != filepath.ToSlash(want) {
+			t.Errorf("audit root = %q, want %q", d+"/audit.jsonl", want)
+		}
+	})
+	t.Run("agent_config_paths_under_profile", func(t *testing.T) {
+		t.Setenv("HOME", `C:\Users\u`)
+		t.Setenv("USERPROFILE", `C:\Users\u`)
+		// zed branches on the compiled-in GOOS (macOS keeps ~/.zed); the
+		// others are home-relative on every platform.
+		zedWant := filepath.Join(`C:\Users\u`, ".config", "zed", "settings.json")
+		if runtime.GOOS == "darwin" {
+			zedWant = filepath.Join(`C:\Users\u`, ".zed", "settings.json")
+		}
+		for _, tc := range []struct{ name, want string }{
+			{"claude", filepath.Join(`C:\Users\u`, ".claude", "settings.json")},
+			{"kilo", filepath.Join(`C:\Users\u`, ".config", "kilo", "plugin", "glove.ts")},
+			{"codex", filepath.Join(`C:\Users\u`, ".codex", "hooks.json")},
+			{"cursor", filepath.Join(`C:\Users\u`, ".cursor", "hooks.json")},
+			{"gemini", filepath.Join(`C:\Users\u`, ".gemini", "settings.json")},
+			{"zed", zedWant},
+		} {
+			var got string
+			switch tc.name {
+			case "claude":
+				got = ClaudeSettingsPath()
+			case "kilo":
+				got = KiloPluginPath()
+			case "codex":
+				got = CodexHooksPath()
+			case "cursor":
+				got = CursorHooksPath()
+			case "gemini":
+				got = GeminiSettingsPath()
+			case "zed":
+				got = ZedSettingsPath()
+			}
+			if filepath.ToSlash(got) != filepath.ToSlash(tc.want) {
+				t.Errorf("%s path = %q, want %q", tc.name, got, tc.want)
+			}
 		}
 	})
 }

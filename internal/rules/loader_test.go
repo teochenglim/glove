@@ -198,3 +198,48 @@ func TestStringValues(t *testing.T) {
 		t.Fatalf("got %d strings %v, want 3", len(got), got)
 	}
 }
+
+// TestAC_0_6_6_tilde_and_userprofile_normalize — AC0.6.6: protected-path
+// matching normalizes home references on both POSIX and Windows forms —
+// `~`/`$HOME` as before, plus `%USERPROFILE%` / `%LOCALAPPDATA%` and
+// backslash separators (§8 path normalization). The expansion only adds
+// candidates, so it only ever tightens.
+func TestAC_0_6_6_tilde_and_userprofile_normalize(t *testing.T) {
+	rs, err := LoadBuiltin()
+	if err != nil {
+		t.Fatalf("LoadBuiltin: %v", err)
+	}
+	t.Run("ac_0_6_6_userprofile_backslash", func(t *testing.T) {
+		cases := []struct {
+			cmd      string
+			wantHits int
+		}{
+			// Windows command style: env-var home refs and backslash paths.
+			{"type %USERPROFILE%\\.ssh\\id_rsa", 1},
+			{"copy %USERPROFILE%\\.aws\\credentials C:\\tmp", 1},
+			{"del C:\\repo\\.env", 1},
+			// Slash-normalized equivalents keep matching.
+			{"cat %USERPROFILE%/.ssh/id_rsa", 1},
+			// Non-credentials stay allowed.
+			{"type %USERPROFILE%\\.ssh\\config", 0},
+			{"type C:\\repo\\.envrc", 0},
+		}
+		for _, tc := range cases {
+			hits := rs.PathHits(tc.cmd)
+			if len(hits) != tc.wantHits {
+				t.Errorf("%q: got %d hits (%v), want %d", tc.cmd, len(hits), hits, tc.wantHits)
+			}
+		}
+	})
+	t.Run("ac_0_6_6_localappdata_expands", func(t *testing.T) {
+		t.Setenv("LOCALAPPDATA", `C:\Users\me\AppData\Local`)
+		rs, err := Load([]byte("protected_paths:\n  - pattern: \"**/secrets/**\"\n    reason: \"test secret\"\n"))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		hits := rs.PathHits("type %LOCALAPPDATA%\\secrets\\key.pem")
+		if len(hits) != 1 {
+			t.Errorf("%%LOCALAPPDATA%% token did not expand: %v", hits)
+		}
+	})
+}

@@ -14,6 +14,10 @@ glove version
 
 ## 2. Install the hook
 
+```bash
+glove install gemini
+```
+
 Gemini CLI hooks are GA (`hooksConfig.enabled` defaults true). Glove
 installs one `BeforeTool` group into `~/.gemini/settings.json` (diff first,
 backup, idempotent — your other settings keys are preserved):
