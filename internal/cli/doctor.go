@@ -15,7 +15,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/teochenglim/glove/internal/adapter"
-	"github.com/teochenglim/glove/internal/rules"
+	"github.com/teochenglim/glove/internal/audit"
+	"github.com/teochenglim/glove/internal/paths"
 	"github.com/teochenglim/glove/internal/version"
 )
 
@@ -55,12 +56,24 @@ func newDoctorCmd() *cobra.Command {
 func runDoctorStatus(w io.Writer) error {
 	fmt.Fprintf(w, "glove          %s\n", version.Version)
 
-	rs, err := rules.LoadBuiltin()
+	rt, err := loadRuntime("")
 	if err != nil {
-		return fmt.Errorf("builtin rules: %w", err)
+		return fmt.Errorf("policy: %w", err)
 	}
-	fmt.Fprintf(w, "rules          %d hard-block, %d force-confirm, %d protected paths\n",
-		len(rs.HardBlock), len(rs.ForceConfirm), len(rs.Protected))
+	hard, force, comp, prot := rt.Engine.RuleCounts()
+	fmt.Fprintf(w, "rules          %d hard-block, %d force-confirm, %d composition, %d protected paths\n", hard, force, comp, prot)
+	fmt.Fprintf(w, "policy         mode=%s (%s)\n", rt.Policy.General.Mode, rt.Sources.Describe())
+
+	if auditDir := paths.DataDir(); auditDir != "" {
+		recs, err := audit.Load(auditDir)
+		n := "unreadable"
+		if err == nil {
+			n = strconv.Itoa(len(recs))
+		}
+		fmt.Fprintf(w, "audit          %s (%s records)\n", auditDir, n)
+	} else {
+		fmt.Fprintln(w, "audit          no data dir (no home context)")
+	}
 
 	a, ok := adapter.For(adapter.ClaudeCodeName)
 	if !ok {

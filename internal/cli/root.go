@@ -1,7 +1,7 @@
-// Package cli wires the frozen PRD §6 command surface onto the engine and
-// adapters. Subcommands land with their releases: hook/check/install/doctor
-// in v0.1.0, audit in v0.3.0, serve in v0.4.0, policy in v0.7.0, list in
-// v0.6.0.
+// Package cli wires the frozen PRD §6 command surface onto the engine,
+// policy and audit. Subcommands land with their releases: hook/check/
+// install/doctor in v0.1.0 (+doctor bench v0.2.0 era), audit + policy in
+// v0.3.0, serve in v0.4.0, list in v0.5.0.
 package cli
 
 import (
@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/teochenglim/glove/internal/decision"
+	"github.com/teochenglim/glove/internal/policy"
 	"github.com/teochenglim/glove/internal/version"
 )
 
@@ -19,6 +20,38 @@ type ExitError int
 
 func (e ExitError) Error() string {
 	return fmt.Sprintf("exit status %d", int(e))
+}
+
+// runtime is the resolved policy plus the engine composed from it. Every
+// command builds one at startup — that per-process load is what makes
+// policy edits enforceable with nothing to restart (PRD §7 0.3.0).
+type runtime struct {
+	Engine  *decision.Engine
+	Policy  *policy.Policy
+	Sources policy.Sources
+}
+
+// loadRuntime resolves the effective policy and composes the engine. An
+// explicit policyPath (`glove check --policy`, `glove policy validate`)
+// replaces discovery.
+func loadRuntime(policyPath string) (*runtime, error) {
+	var p *policy.Policy
+	var src policy.Sources
+	var err error
+	if policyPath != "" {
+		p, err = policy.LoadFile(policyPath)
+		src = policy.Sources{Project: policyPath}
+	} else {
+		p, src, err = policy.Load()
+	}
+	if err != nil {
+		return nil, err
+	}
+	eng, err := decision.NewFromPolicy(p)
+	if err != nil {
+		return nil, fmt.Errorf("compose engine: %w", err)
+	}
+	return &runtime{Engine: eng, Policy: p, Sources: src}, nil
 }
 
 // NewRootCommand builds the glove CLI.
@@ -41,6 +74,8 @@ Zero network calls on the decision path.`,
 		newHookCmd(),
 		newInstallCmd(),
 		newDoctorCmd(),
+		newAuditCmd(),
+		newPolicyCmd(),
 	)
 	return root
 }
@@ -54,10 +89,4 @@ func newVersionCmd() *cobra.Command {
 			fmt.Println(version.Version)
 		},
 	}
-}
-
-// loadEngine builds the decision engine from the embedded builtin rules.
-// The single construction point keeps "which rule set am I running" honest.
-func loadEngine() (*decision.Engine, error) {
-	return decision.NewBuiltin()
 }

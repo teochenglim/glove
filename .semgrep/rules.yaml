@@ -1,12 +1,16 @@
-# Vendored Semgrep rules — the semgrep.dev registry packs 404'd in CI for the
-# house reference project, so SAST runs offline against this file. Extend with
-# rules here; never re-add --config p/<pack> (network-dependent).
+# Vendored Semgrep rules — project-specific rules that run IN ADDITION to the
+# registry packs (p/golang, p/sql-injection, p/secrets, p/owasp-top-ten in
+# security.yml; keep all five --config lines). Extend this file for project
+# rules; never replace the packs with it.
+# NOTE: keep messages free of ": " — YAML plain scalars treat colon-space as
+# a mapping indicator (this file broke the v0.2.0 security run that way).
 rules:
   - id: go-command-injection
-    message: exec.Command with a variable argument runs untrusted input in a
+    message: >-
+      exec.Command with a variable argument runs untrusted input in a
       shell. Glove's core invariant is that the guard NEVER executes an
       agent-proposed command — it only inspects and decides (PRD §10.4).
-      Allowed exceptions (kept here, never widened silently): spawning
+      Allowed exceptions (kept here, never widened silently) — spawning
       glove itself (os.Executable(), used by `glove doctor --bench hook`),
       and test suites driving local tools (go build in the bench tests).
     severity: ERROR
@@ -14,6 +18,10 @@ rules:
     paths:
       exclude:
         - '**/*_test.go'
+        # internal/cli/doctor.go: the bench spawns the glove binary itself
+        # (os.Executable() -> variable) to measure hook cold start; it never
+        # touches agent input. Kept here deliberately — do not widen.
+        - internal/cli/doctor.go
     patterns:
       - pattern-either:
           - pattern: exec.Command($CMD, ...)
@@ -24,7 +32,8 @@ rules:
             - pattern-not: os.Executable()
 
   - id: go-hardcoded-credential
-    message: A variable named like a credential is assigned a literal — load it
+    message: >-
+      A variable named like a credential is assigned a literal — load it
       from the environment or config; nothing credential-shaped belongs in the
       repo.
     severity: ERROR
@@ -36,7 +45,8 @@ rules:
           regex: (?i)^(.*)(password|passwd|secret|token|apikey|api_key)(.*)$
 
   - id: go-weak-crypto
-    message: md5/sha1 are broken for integrity claims — Glove pins SHA-256
+    message: >-
+      md5/sha1 are broken for integrity claims — Glove pins SHA-256
       (input_hash in audit records, model download verification PRD §7 0.4.0).
     severity: WARNING
     languages: [go]
@@ -45,7 +55,8 @@ rules:
       - pattern: sha1.New()
 
   - id: go-time-now-in-decision
-    message: time.Now() inside internal/decision — decision logic takes an
+    message: >-
+      time.Now() inside internal/decision — decision logic takes an
       injected clock (cfg.Now) so time-window behaviour is testable; wall
       clock reads live at the CLI/server/audit boundary only.
     severity: WARNING

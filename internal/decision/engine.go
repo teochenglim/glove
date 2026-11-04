@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/teochenglim/glove/internal/adapter"
+	"github.com/teochenglim/glove/internal/policy"
 	"github.com/teochenglim/glove/internal/rules"
 	"github.com/teochenglim/glove/pkg/contract"
 )
@@ -33,6 +34,26 @@ func NewBuiltin() (*Engine, error) {
 	return New(rs), nil
 }
 
+// NewFromPolicy composes the builtin rule set with the resolved policy's
+// extensions (PRD §5.5, §7 0.3.0): every hook/check process starts from the
+// current policy, so user edits are enforced on the next tool call with no
+// daemon to restart.
+func NewFromPolicy(p *policy.Policy) (*Engine, error) {
+	base, err := rules.LoadBuiltin()
+	if err != nil {
+		return nil, err
+	}
+	rs, err := rules.Compose(base, rules.Extra{
+		HardBlock:    p.Rules.HardBlock,
+		ForceConfirm: p.Rules.ForceConfirm,
+		Protected:    p.Paths.Protected,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return New(rs), nil
+}
+
 // SegmentVerdict is the per-segment outcome behind a decision (CLI --explain).
 type SegmentVerdict struct {
 	Text     string
@@ -46,6 +67,12 @@ type SegmentVerdict struct {
 	Pair     string
 	PairRisk contract.Risk
 	PairWhy  []string
+}
+
+// RuleCounts exposes the composed rule counts (doctor status output):
+// hard-block, force-confirm, composition, protected paths.
+func (e *Engine) RuleCounts() (int, int, int, int) {
+	return len(e.rules.HardBlock), len(e.rules.ForceConfirm), len(e.rules.Composition), len(e.rules.Protected)
 }
 
 // Evaluate runs the pipeline over one tool call and stamps the audit ID.

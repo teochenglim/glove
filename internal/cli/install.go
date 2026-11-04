@@ -33,12 +33,12 @@ func newInstallCmd() *cobra.Command {
 				return nil
 			}
 			// PRD §7 0.1.0: verify the install with two test calls.
-			eng, err := loadEngine()
+			rt, err := loadRuntime("")
 			if err != nil {
-				return fmt.Errorf("load engine: %w", err)
+				return fmt.Errorf("load policy: %w", err)
 			}
-			okAllow := testCall(eng, "ls -la", contract.DecisionAllow)
-			okBlock := testCall(eng, "rm -rf /", contract.DecisionBlock)
+			okAllow := testCall(rt.Engine, "ls -la", contract.DecisionAllow)
+			okBlock := testCall(rt.Engine, "rm -rf /", contract.DecisionBlock)
 			if !okAllow || !okBlock {
 				fmt.Fprintln(os.Stderr, "glove: install verification failed — the hook was written but the engine did not behave; run `glove doctor`")
 				return ExitError(1)

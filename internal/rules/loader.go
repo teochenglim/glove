@@ -142,6 +142,48 @@ func globToRegexp(glob string) (*regexp.Regexp, error) {
 	return regexp.Compile(b.String())
 }
 
+// Extra carries the policy-provided pattern extensions (PRD §5.5
+// rules.hard_block / rules.force_confirm / paths.protected).
+type Extra struct {
+	HardBlock    []string
+	ForceConfirm []string
+	Protected    []string
+}
+
+// Compose extends a base rule set (usually the builtin one) with policy
+// patterns (PRD §7 0.3.0: user extensions are enforced without restarting
+// anything — every hook process re-composes at startup).
+func Compose(base *RuleSet, extra Extra) (*RuleSet, error) {
+	rs := &RuleSet{
+		HardBlock:    append([]RegexRule(nil), base.HardBlock...),
+		ForceConfirm: append([]RegexRule(nil), base.ForceConfirm...),
+		Composition:  append([]RegexRule(nil), base.Composition...),
+		Protected:    append([]PathRule(nil), base.Protected...),
+	}
+	for i, pat := range extra.HardBlock {
+		re, err := regexp.Compile(pat)
+		if err != nil {
+			return nil, fmt.Errorf("policy hard_block[%d]: %w", i, err)
+		}
+		rs.HardBlock = append(rs.HardBlock, RegexRule{ID: fmt.Sprintf("policy_hard_%d", i), Reason: "user policy pattern", RE: re})
+	}
+	for i, pat := range extra.ForceConfirm {
+		re, err := regexp.Compile(pat)
+		if err != nil {
+			return nil, fmt.Errorf("policy force_confirm[%d]: %w", i, err)
+		}
+		rs.ForceConfirm = append(rs.ForceConfirm, RegexRule{ID: fmt.Sprintf("policy_force_%d", i), Reason: "user policy pattern", RE: re})
+	}
+	for i, pat := range extra.Protected {
+		re, err := globToRegexp(pat)
+		if err != nil {
+			return nil, fmt.Errorf("policy protected[%d]: %w", i, err)
+		}
+		rs.Protected = append(rs.Protected, PathRule{Pattern: pat, Reason: "user policy protected path", RE: re})
+	}
+	return rs, nil
+}
+
 // FirstHardHit returns the first hard-block rule matching s, or nil.
 func (rs *RuleSet) FirstHardHit(s string) *RegexRule {
 	for i := range rs.HardBlock {

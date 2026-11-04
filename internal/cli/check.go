@@ -17,15 +17,16 @@ import (
 
 func newCheckCmd() *cobra.Command {
 	var explain, offline bool
+	var policyPath string
 	cmd := &cobra.Command{
 		Use:   `check "<command>"`,
 		Short: "Evaluate a command through the decision engine and print the verdict",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			command := strings.Join(args, " ")
-			eng, err := loadEngine()
+			rt, err := loadRuntime(policyPath)
 			if err != nil {
-				return fmt.Errorf("load engine: %w", err)
+				return err
 			}
 			raw, err := json.Marshal(map[string]string{"command": command})
 			if err != nil {
@@ -38,18 +39,20 @@ func newCheckCmd() *cobra.Command {
 				ToolInput: raw,
 			}
 			start := time.Now()
-			v, segments := eng.EvaluateDetailed(in)
+			v, segments := rt.Engine.EvaluateDetailed(in)
 			v.LatencyMs = time.Since(start).Milliseconds()
 
 			printVerdict(os.Stdout, v)
+			fmt.Fprintf(os.Stdout, "policy         %s (%s)\n", rt.Policy.General.Mode, rt.Sources.Describe())
 			if explain {
 				printSegments(os.Stdout, segments)
 			}
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&explain, "explain", false, "show the rule hits behind the decision")
-	cmd.Flags().BoolVar(&offline, "offline", false, "force offline evaluation (0.1.0 always is; serve lands in v0.4.0)")
+	cmd.Flags().BoolVar(&explain, "explain", false, "show the per-segment decomposition and rule hits behind the decision")
+	cmd.Flags().BoolVar(&offline, "offline", false, "force offline evaluation (serve arrives in v0.4.0; Layer 0+1 always run offline)")
+	cmd.Flags().StringVar(&policyPath, "policy", "", "evaluate against an explicit policy file instead of the discovered one (PRD §7 0.3.0)")
 	return cmd
 }
 

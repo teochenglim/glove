@@ -14,7 +14,7 @@ No cloud. Zero network calls on the decision path. The audit log contains no pla
 
 ## Status
 
-**Layer 0 + Layer 1 are implemented and locally verified (v0.2.0, not yet tagged).** Deterministic rules plus shell-aware chain splitting work end to end for Claude Code: `check`, `hook`, `install`, `doctor`. Tagging waits on the live-session smoke check; the roadmap continues at [RELEASE.md](RELEASE.md) (audit + policy next).
+**Layer 0 + Layer 1 + audit + policy are implemented and locally verified (v0.3.0, not yet tagged).** Every decision is auditable with zero plaintext by default, and `policy.toml` tunes the rules per user or per project with nothing to restart. The roadmap continues at [RELEASE.md](RELEASE.md) (Layer 2: Laya + `serve` next).
 
 ## Quick start
 
