@@ -58,6 +58,24 @@ change a delivered verdict.
 | sink self-audit events themselves | written to the local log only, never forwarded — no delivery loop | `TestAC_0_7_5_sink_off_by_default` (forwarding does not duplicate locally) |
 | rotation drops the oldest chain file | the first surviving record's `prev_hash` is the anchor — retention is never a false tamper alarm | `TestAC_0_7_1_chain_concurrent_and_rotation` |
 
+## Correlation + policy bundles (v0.8.0)
+
+Correlation is an **additive tightening layer**, not a guard input: it may
+raise an undecidable allow → review, and nothing else. Its failure contract
+therefore inverts deliberately — an unreadable trail degrades to "no
+escalation" (the call keeps its Layer 0/1/2 verdict), because correlation
+has no decision of its own to protect. Bundles are CLI operations off the
+hook path.
+
+| Failure | Decision | Pinned by |
+|---|---|---|
+| audit trail unreadable / session scan fails | no escalation — the undecidable call keeps its own verdict; a stderr-free silent skip (additive layer, nothing to fail closed) | `TestAC_0_8_1_escalation_tightens_undecidable` (below-threshold subtest pins the no-escalation shape), `TestAC_0_8_1_correlation_never_loosens` |
+| session_id absent from the hook payload | correlation never applies — no key, no scan | `TestAC_0_8_1_correlation_never_loosens` (deterministic verdicts untouched) |
+| deterministic verdict in a hot session | untouched — block stays block/exit 2, force_confirm review stays review; the correlation reason never attaches | `TestAC_0_8_1_correlation_never_loosens` |
+| tampered policy bundle (policy bytes, origin, or checksum edited) | `policy import` refuses BEFORE any write — destination untouched, no `policy_import` event | `TestAC_0_8_3_import_rejects_tampered_bundle` (unit + CLI end-to-end) |
+| bundled policy invalid for this glove | import refuses — a bundle of an invalid policy never installs (`policy pack` also refuses at the source) | `TestAC_0_8_3_import_emits_policy_event` (LoadFileContent gate) |
+| policy_import event write fails after a successful import | stderr warning — the import stands, the trail hiccup must not undo it | `TestAC_0_8_3_import_emits_policy_event` |
+
 ## Vendor-side fail-open surfaces (documented, mitigated, not ours to fix)
 
 | Surface | Mitigation | Documented in |

@@ -369,6 +369,19 @@ force_confirm = [
 type = "syslog"
 target = "127.0.0.1:514"
 
+[correlation]
+# Session escalation (v0.8.0): when a session accumulates this many
+# block/review decisions, subsequent UNDECIDABLE calls (no rule fired,
+# verdict still allow) tighten to review. Tighten-only by construction —
+# deterministic verdicts are never touched. 0 = default (3); -1 = disabled.
+session_threshold = 3
+
+# Fleet distribution (v0.8.0): `glove policy pack <file>` seals a policy
+# into a checksummed JSON bundle with origin metadata (sources, glove
+# version, pack time); `glove policy import <bundle> [--out <path>]`
+# verifies BEFORE any write, shows the diff, and emits a policy_import
+# audit event. Bundles are files — no cross-machine service (§3.3).
+
 [paths]
 protected = [
     "~/.ssh/",
@@ -407,7 +420,10 @@ glove audit tail
 glove audit query [--decision block] [--since 24h] [--agent claude-code] [--technique T1552]
 glove audit export --format jsonl|csv|cef|ecs --since <dur>
 glove audit verify                             # v0.7.0: tamper-evidence chain check
+glove audit stats [--since 24h] [--top 10]     # v0.8.0: top rules/techniques/agents/decisions
 glove policy validate <file>
+glove policy pack <file> [--out <bundle>]      # v0.8.0: checksummed bundle + origin metadata
+glove policy import <bundle> [--out <path>] [--dry-run]  # v0.8.0: verify-before-write install
 glove version
 ```
 

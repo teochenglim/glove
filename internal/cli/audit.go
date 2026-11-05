@@ -21,8 +21,72 @@ func newAuditCmd() *cobra.Command {
 		Short: "Inspect the decision audit log (PRD §5.4)",
 		Args:  cobra.NoArgs,
 	}
-	cmd.AddCommand(newAuditTailCmd(), newAuditQueryCmd(), newAuditExportCmd(), newAuditVerifyCmd())
+	cmd.AddCommand(newAuditTailCmd(), newAuditQueryCmd(), newAuditExportCmd(), newAuditVerifyCmd(), newAuditStatsCmd())
 	return cmd
+}
+
+// newAuditStatsCmd implements `glove audit stats` (v0.8.0, AC0.8.2): the
+// local "SIEM-lite" view — top rules, techniques, agents, and decision
+// counts over a window.
+func newAuditStatsCmd() *cobra.Command {
+	var since string
+	var top int
+	cmd := &cobra.Command{
+		Use:   "stats",
+		Short: "Summarize the audit log — top rules, techniques, agents, decision counts",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if top < 0 {
+				return fmt.Errorf("--top must be >= 0, got %d", top)
+			}
+			sinceTs, err := parseSince(since)
+			if err != nil {
+				return err
+			}
+			dir := paths.DataDir()
+			if dir == "" {
+				return fmt.Errorf("no audit directory (no home context)")
+			}
+			q := audit.Query{Since: sinceTs}
+			if sinceTs.IsZero() {
+				q = audit.Query{}
+			}
+			recs, err := audit.QueryRecords(dir, q)
+			if err != nil {
+				return err
+			}
+			st := audit.ComputeStats(recs)
+			w := cmd.OutOrStdout()
+			if st.Records == 0 {
+				fmt.Fprintln(w, "no audit records in window")
+				return nil
+			}
+			fmt.Fprintf(w, "records: %d\n", st.Records)
+			fmt.Fprintf(w, "decisions: %d allow, %d review, %d block\n",
+				st.Decisions["allow"], st.Decisions["review"], st.Decisions["block"])
+			printCounts(w, "agents", st.Agents, top)
+			printCounts(w, "rules", st.Rules, top)
+			printCounts(w, "techniques", st.Techniques, top)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&since, "since", "", "only records newer than this duration (e.g. 24h)")
+	cmd.Flags().IntVar(&top, "top", 10, "how many entries to show per table (0 = all)")
+	return cmd
+}
+
+func printCounts(w io.Writer, label string, counts []audit.Count, top int) {
+	if len(counts) == 0 {
+		return
+	}
+	if top > 0 && len(counts) > top {
+		counts = counts[:top]
+	}
+	parts := make([]string, 0, len(counts))
+	for _, c := range counts {
+		parts = append(parts, fmt.Sprintf("%s %d", c.Name, c.N))
+	}
+	fmt.Fprintf(w, "top %s: %s\n", label, strings.Join(parts, ", "))
 }
 
 func newAuditTailCmd() *cobra.Command {

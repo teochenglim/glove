@@ -102,6 +102,24 @@ func RunHookWith(stdout, stderr io.Writer, agentName string, stdin io.Reader, op
 		}
 	}
 
+	// Session escalation correlation (v0.8.0, AC0.8.1): a session that has
+	// already accumulated block/review decisions tightens subsequent
+	// *undecidable* calls — no deterministic rule fired and the verdict is
+	// still allow — to review. Tighten-only by construction: blocks and
+	// deterministic reviews are never touched (their fired list is
+	// non-empty). Derived from the audit trail, so it costs two bounded
+	// tail reads and only on undecidable calls; an unreadable trail
+	// degrades to "no escalation" (additive layer — failure-modes row).
+	if threshold := rt.Policy.Correlation.ResolvedThreshold(); threshold > 0 &&
+		v.Decision == contract.DecisionAllow && len(fired) == 0 {
+		if blocks, reviews, err := audit.CountSessionVerdicts(paths.DataDir(), in.SessionID); err == nil && blocks+reviews >= threshold {
+			v.Decision = contract.DecisionReview
+			v.Risk = contract.RiskMedium
+			v.Reasons = append(v.Reasons,
+				fmt.Sprintf("correlation: %d block/review event(s) already in this session — undecidable call tightened to review", blocks+reviews))
+		}
+	}
+
 	v.LatencyMs = time.Since(start).Milliseconds()
 	out, err := a.RenderVerdict(v)
 	if err != nil {

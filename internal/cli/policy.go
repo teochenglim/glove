@@ -15,7 +15,7 @@ func newPolicyCmd() *cobra.Command {
 		Short: "Policy file operations (PRD §5.5)",
 		Args:  cobra.NoArgs,
 	}
-	cmd.AddCommand(newPolicyValidateCmd())
+	cmd.AddCommand(newPolicyValidateCmd(), newPolicyPackCmd(), newPolicyImportCmd())
 	return cmd
 }
 

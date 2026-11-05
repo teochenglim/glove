@@ -2,4 +2,4 @@
 // build injects the tagged version via -ldflags -X.
 package version
 
-var Version = "0.7.0"
+var Version = "0.8.0"

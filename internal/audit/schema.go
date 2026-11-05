@@ -18,8 +18,9 @@ import (
 // Event values for non-decision records (Event is "" for decisions).
 const (
 	EventPolicyReload = "policy_reload"
-	EventSinkError    = "sink_error"   // delivery attempt failed (AC0.7.5)
-	EventSinkDropped  = "sink_dropped" // bounded queue overflowed (AC0.7.5)
+	EventPolicyImport = "policy_import" // v0.8.0: a verified bundle was installed (AC0.8.3)
+	EventSinkError    = "sink_error"    // delivery attempt failed (AC0.7.5)
+	EventSinkDropped  = "sink_dropped"  // bounded queue overflowed (AC0.7.5)
 )
 
 // AuditSchemaVersion is the current audit JSONL schema version (PRD §5.4):

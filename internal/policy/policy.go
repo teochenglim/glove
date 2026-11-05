@@ -32,12 +32,40 @@ const (
 
 // Policy is the resolved policy (PRD §5.5).
 type Policy struct {
-	General General          `toml:"general"`
-	Rules   Rules            `toml:"rules"`
-	Paths   PathsConf        `toml:"paths"`
-	Laya    Laya             `toml:"laya"`
-	Audit   AuditConf        `toml:"audit"`
-	Agents  map[string]Agent `toml:"agents"`
+	General     General          `toml:"general"`
+	Rules       Rules            `toml:"rules"`
+	Paths       PathsConf        `toml:"paths"`
+	Laya        Laya             `toml:"laya"`
+	Audit       AuditConf        `toml:"audit"`
+	Correlation Correlation      `toml:"correlation"`
+	Agents      map[string]Agent `toml:"agents"`
+}
+
+// Correlation configures session escalation (v0.8.0, AC0.8.1): when a
+// session accumulates SessionThreshold block/review decisions, subsequent
+// *undecidable* calls (no deterministic rule fired, final decision allow)
+// tighten to review. Correlation is an additive layer — it can never loosen
+// a deterministic verdict. SessionThreshold: 0 = the default (3), -1 =
+// disabled (an explicit 0 cannot be distinguished from unset in TOML
+// merging, so disable is spelled -1).
+type Correlation struct {
+	SessionThreshold int `toml:"session_threshold"`
+}
+
+// DefaultSessionThreshold applies when the key is absent.
+const DefaultSessionThreshold = 3
+
+// ResolvedThreshold maps the config value onto the effective threshold
+// (0 → DefaultSessionThreshold, -1 → 0 = disabled).
+func (c Correlation) ResolvedThreshold() int {
+	switch c.SessionThreshold {
+	case 0:
+		return DefaultSessionThreshold
+	case -1:
+		return 0
+	default:
+		return c.SessionThreshold
+	}
 }
 
 type General struct {
@@ -167,6 +195,22 @@ func LoadFile(path string) (*Policy, error) {
 	return p, nil
 }
 
+// LoadFileContent validates a policy given as raw bytes — the bundle import
+// path (`glove policy import` checks the bundled TOML before installing it).
+func LoadFileContent(raw []byte) (*Policy, error) {
+	p := Defaults()
+	var over Policy
+	if err := toml.Unmarshal(raw, &over); err != nil {
+		return nil, fmt.Errorf("%s", syntaxError(err))
+	}
+	over.Audit.Sink.TypeLine, over.Audit.Sink.TargetLine = sinkKeyLines(string(raw))
+	mergeInto(p, &over)
+	if err := p.Validate(); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
 func mergeFile(p *Policy, path string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -245,6 +289,9 @@ func mergeInto(p, over *Policy) {
 	}
 	if over.Audit.Sink.TargetLine > 0 {
 		p.Audit.Sink.TargetLine = over.Audit.Sink.TargetLine
+	}
+	if over.Correlation.SessionThreshold != 0 {
+		p.Correlation.SessionThreshold = over.Correlation.SessionThreshold
 	}
 	for name, a := range over.Agents {
 		if p.Agents == nil {
@@ -338,6 +385,9 @@ func (p *Policy) Validate() error {
 	}
 	errs = append(errs, p.validateSink()...)
 	errs = append(errs, p.validateTechniques()...)
+	if t := p.Correlation.SessionThreshold; t < -1 || t > 10000 {
+		errs = append(errs, fmt.Sprintf("correlation.session_threshold: %d must be -1 (disabled) or within [1, 10000]", t))
+	}
 	if len(errs) == 0 {
 		return nil
 	}
