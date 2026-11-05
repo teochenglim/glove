@@ -48,4 +48,5 @@ glove — single-binary local guard for AI agent tool calls (Go 1.27.3, `CGO_ENA
 - `x, err := f()` inside a loop shadows the outer err — use `var err error; x, err = …` when accumulating; grep for it in review.
 - `filepath.ToSlash` is a no-op on Unix — normalize path separators string-level.
 - Shared runners flake wall-clock budgets → timing tests live in `make stress`; CI gates use the 50ms absorb-noise form where a gate remains.
+- Platform-shaped test fixtures (release artifacts, paths, binaries) must derive the platform from `runtime` (aliased `guntime` here — `internal/cli` declares its own `runtime` struct), never hardcode the dev machine's — the v0.9.1 fixture 404'd on ubuntu for exactly that.
 - Laya judges `git status` as system-reaching → review: honest opinion, don't "fix" calibration (blast radius never blocks alone); point users at `mode = "fast"`. Adapter vendor fail-open traps (cursor `failClosed: true`, gemini non-JSON stdout, codex hook timeout, `KILO_PURE=1`, opencode V2 beta) — `docs/failure-modes.md` is the source.

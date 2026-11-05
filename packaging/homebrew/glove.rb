@@ -1,4 +1,4 @@
-# Homebrew formula for glove (v0.9.0, PRD §9).
+# Homebrew formula for glove (PRD §9; version tracks the upcoming release).
 #
 # The tap repo (homebrew-<user>/…) is a maintainer action; this formula and
 # its docs ship in-repo so the packaging is reviewable and test-asserted
@@ -12,7 +12,7 @@
 class Glove < Formula
   desc "Local guard for AI agent tool calls — allow / review / block before execution"
   homepage "https://github.com/teochenglim/glove"
-  version "0.9.0"
+  version "0.9.1"
   license "Apache-2.0"
 
   depends_on macos: :el_capitan

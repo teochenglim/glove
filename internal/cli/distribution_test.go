@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	guntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -69,7 +70,7 @@ func TestAC_0_9_1_install_script_checksum_verified(t *testing.T) {
 	bin := buildGlove(t) // built BEFORE any env override (0.6.1 lesson)
 
 	t.Run("ac_0_9_1_clean_install_runs_the_real_script", func(t *testing.T) {
-		srv := fakeRelease(t, bin, version, "darwin", "arm64", false)
+		srv := fakeRelease(t, bin, version, guntime.GOOS, guntime.GOARCH, false)
 		defer srv.Close()
 		installDir := t.TempDir()
 		cmd := exec.Command("sh", "../../scripts/install.sh", version)
@@ -95,7 +96,7 @@ func TestAC_0_9_1_install_script_checksum_verified(t *testing.T) {
 	})
 
 	t.Run("ac_0_9_1_tampered_checksums_refused_before_install", func(t *testing.T) {
-		srv := fakeRelease(t, bin, version, "darwin", "arm64", true)
+		srv := fakeRelease(t, bin, version, guntime.GOOS, guntime.GOARCH, true)
 		defer srv.Close()
 		installDir := t.TempDir()
 		cmd := exec.Command("sh", "../../scripts/install.sh", version)
@@ -119,7 +120,7 @@ func TestAC_0_9_1_install_script_checksum_verified(t *testing.T) {
 		// checksums.txt without the asset line → refuse, no install.
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if strings.HasSuffix(r.URL.Path, "checksums.txt") {
-				fmt.Fprint(w, strings.Repeat("cd", 32)+"  glove-v"+version+"-darwin-arm64.tar.gz\n")
+				fmt.Fprint(w, strings.Repeat("cd", 32)+"  glove-v"+version+"-"+guntime.GOOS+"-"+guntime.GOARCH+".tar.gz\n")
 				return
 			}
 			w.Write([]byte("not-the-real-archive"))
