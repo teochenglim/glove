@@ -70,7 +70,8 @@ func RunHookWith(stdout, stderr io.Writer, agentName string, stdin io.Reader, op
 		return writeDeny(fmt.Sprintf("invalid hook input: %v — failing closed", err))
 	}
 
-	v := rt.Engine.Evaluate(in)
+	v, _, fired := rt.Engine.EvaluateDetailed(in)
+	v.AuditID = uuid.NewString()
 	v.ModelAvailable = false
 
 	// Layer 2 (PRD §7 0.4.0): standard mode consults serve; fast/offline skip
@@ -119,7 +120,7 @@ func RunHookWith(stdout, stderr io.Writer, agentName string, stdin io.Reader, op
 	// Audit only after the decision is delivered (PRD §4.1: the writer never
 	// blocks the decision path). Failures are stderr warnings — the guard
 	// must not turn an audit hiccup into a wrong or lost decision.
-	writeAudit(stderr, opts, rt, a.Name(), in, v)
+	writeAudit(stderr, opts, rt, a.Name(), in, v, fired)
 
 	if v.Decision == contract.DecisionBlock {
 		return 2
@@ -129,8 +130,9 @@ func RunHookWith(stdout, stderr io.Writer, agentName string, stdin io.Reader, op
 
 // writeAudit records the decision (PRD §5.4). The default record carries
 // zero plaintext: a SHA-256 input_hash only; --audit-verbose adds the
-// redacted input.
-func writeAudit(stderr io.Writer, opts HookOptions, rt *runtime, agent string, in adapter.HookInput, v contract.Verdict) {
+// redacted input. The fired rule ids map to MITRE ATT&CK technique tags
+// (AC0.7.2); a configured sink receives the record after delivery (ADR 4).
+func writeAudit(stderr io.Writer, opts HookOptions, rt *runtime, agent string, in adapter.HookInput, v contract.Verdict, fired []string) {
 	dir := paths.DataDir()
 	if dir == "" {
 		return
@@ -153,14 +155,61 @@ func writeAudit(stderr io.Writer, opts HookOptions, rt *runtime, agent string, i
 		Questions:      v.Questions,
 		LatencyMs:      v.LatencyMs,
 		GloveVersion:   version.Version,
+		Techniques:     rt.Engine.TechniquesFor(fired),
 	}
 	if opts.AuditVerbose && len(in.ToolInput) > 0 {
 		red := audit.Redact(string(in.ToolInput))
 		rec.InputRedacted = &red
 	}
-	if err := audit.NewWriter(dir).Write(rec); err != nil {
+	w := audit.NewWriter(dir)
+	written, err := w.Write(rec)
+	if err != nil {
 		fmt.Fprintf(stderr, "glove: audit write failed (decision already delivered): %v\n", err)
+		return
 	}
+	// Forward the stamped record (ts, identity, chain) — never the pre-write
+	// copy (ADR 4: what the SIEM sees is what the log holds).
+	dispatchSink(stderr, rt.Policy, w, written)
+}
+
+// dispatchSink forwards the delivered record to the configured sink (ADR 4:
+// post-decision, opt-in, bounded). It runs after the decision is rendered
+// and the local audit line is written — a failing or slow sink can change
+// neither. Drop/failure counts are written back as local-only audit events.
+func dispatchSink(stderr io.Writer, pol *policy.Policy, w *audit.Writer, rec audit.Record) {
+	cfg := pol.Audit.Sink
+	if cfg.Type == "" {
+		return
+	}
+	d := audit.NewDispatcher(audit.SinkConfig{
+		Type:      cfg.Type,
+		Target:    cfg.Target,
+		Protocol:  cfg.Protocol,
+		QueueSize: cfg.QueueSize,
+		TimeoutMs: cfg.TimeoutMs,
+	})
+	d.Enqueue(rec)
+	timeout := time.Duration(cfg.TimeoutMs) * time.Millisecond
+	if timeout <= 0 {
+		timeout = 500 * time.Millisecond
+	}
+	dropped, failed := d.Drain(timeout)
+	emit := func(event string, n int64, detail string) {
+		if n == 0 {
+			return
+		}
+		ev := audit.Record{
+			AuditID:      uuid.NewString(),
+			Event:        event,
+			Reasons:      []string{fmt.Sprintf("%s: %d record(s) — %s", event, n, detail)},
+			GloveVersion: version.Version,
+		}
+		if _, err := w.Write(ev); err != nil {
+			fmt.Fprintf(stderr, "glove: sink event %s write failed: %v\n", event, err)
+		}
+	}
+	emit(audit.EventSinkError, failed, "delivery failed — sink "+cfg.Type+" "+cfg.Target)
+	emit(audit.EventSinkDropped, dropped, "queue overflow")
 }
 
 // detectPolicyReload writes a policy_reload event when the resolved policy
@@ -185,7 +234,7 @@ func detectPolicyReload(stderr io.Writer, dir string, rt *runtime) {
 			Reasons:      []string{"policy changed — " + rt.Sources.Describe()},
 			GloveVersion: version.Version,
 		}
-		if err := w.Write(ev); err != nil {
+		if _, err := w.Write(ev); err != nil {
 			fmt.Fprintf(stderr, "glove: audit write failed (policy_reload event): %v\n", err)
 		}
 		_ = os.MkdirAll(dir, 0o700)

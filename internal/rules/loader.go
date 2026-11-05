@@ -20,19 +20,28 @@ import (
 var builtinFS embed.FS
 
 // RegexRule is a compiled {id, pattern, reason} rule (PRD Appendix B format).
+// Technique is the MITRE ATT&CK tag inherited by audit records when the rule
+// fires (v0.7.0, AC0.7.2).
 type RegexRule struct {
-	ID     string
-	Reason string
-	RE     *regexp.Regexp
+	ID        string
+	Reason    string
+	Technique string
+	RE        *regexp.Regexp
 }
 
 // PathRule is a compiled protected-path glob; `**` spans directories, `*`
-// and `?` stay within one.
+// and `?` stay within one. Technique as above; RuleID is the audit-facing
+// identifier ("protected_path(<pattern>)").
 type PathRule struct {
-	Pattern string
-	Reason  string
-	RE      *regexp.Regexp
+	Pattern   string
+	Reason    string
+	Technique string
+	RE        *regexp.Regexp
 }
+
+// RuleID is the identifier the engine reports for a path hit (it matches the
+// reason prefix and the technique index key).
+func (p PathRule) RuleID() string { return "protected_path(" + p.Pattern + ")" }
 
 // RuleSet is a fully compiled rule set, safe for concurrent reads.
 type RuleSet struct {
@@ -40,17 +49,22 @@ type RuleSet struct {
 	ForceConfirm []RegexRule
 	Composition  []RegexRule // v0.2.0: matched per chain segment and per pipe pair
 	Protected    []PathRule
+	// TechniqueIndex maps a fired rule id (RegexRule.ID, or PathRule.RuleID)
+	// to its MITRE ATT&CK tag (v0.7.0).
+	TechniqueIndex map[string]string
 }
 
 type regexSpec struct {
 	ID      string `yaml:"id"`
 	Pattern string `yaml:"pattern"`
 	Reason  string `yaml:"reason"`
+	Mitre   string `yaml:"mitre"`
 }
 
 type pathSpec struct {
 	Pattern string `yaml:"pattern"`
 	Reason  string `yaml:"reason"`
+	Mitre   string `yaml:"mitre"`
 }
 
 type fileSpec struct {
@@ -75,34 +89,39 @@ func Load(data []byte) (*RuleSet, error) {
 	if err := yaml.Unmarshal(data, &f); err != nil {
 		return nil, fmt.Errorf("parse rules: %w", err)
 	}
-	rs := &RuleSet{}
+	rs := &RuleSet{TechniqueIndex: map[string]string{}}
 	for _, s := range f.HardBlock {
 		re, err := regexp.Compile(s.Pattern)
 		if err != nil {
 			return nil, fmt.Errorf("hard_block %s: bad pattern: %w", s.ID, err)
 		}
-		rs.HardBlock = append(rs.HardBlock, RegexRule{ID: s.ID, Reason: s.Reason, RE: re})
+		rs.HardBlock = append(rs.HardBlock, RegexRule{ID: s.ID, Reason: s.Reason, Technique: s.Mitre, RE: re})
+		rs.TechniqueIndex[s.ID] = s.Mitre
 	}
 	for _, s := range f.ForceConfirm {
 		re, err := regexp.Compile(s.Pattern)
 		if err != nil {
 			return nil, fmt.Errorf("force_confirm %s: bad pattern: %w", s.ID, err)
 		}
-		rs.ForceConfirm = append(rs.ForceConfirm, RegexRule{ID: s.ID, Reason: s.Reason, RE: re})
+		rs.ForceConfirm = append(rs.ForceConfirm, RegexRule{ID: s.ID, Reason: s.Reason, Technique: s.Mitre, RE: re})
+		rs.TechniqueIndex[s.ID] = s.Mitre
 	}
 	for _, s := range f.Composition {
 		re, err := regexp.Compile(s.Pattern)
 		if err != nil {
 			return nil, fmt.Errorf("composition %s: bad pattern: %w", s.ID, err)
 		}
-		rs.Composition = append(rs.Composition, RegexRule{ID: s.ID, Reason: s.Reason, RE: re})
+		rs.Composition = append(rs.Composition, RegexRule{ID: s.ID, Reason: s.Reason, Technique: s.Mitre, RE: re})
+		rs.TechniqueIndex[s.ID] = s.Mitre
 	}
 	for _, s := range f.ProtectedPaths {
 		re, err := globToRegexp(s.Pattern)
 		if err != nil {
 			return nil, fmt.Errorf("protected_paths %s: bad glob: %w", s.Pattern, err)
 		}
-		rs.Protected = append(rs.Protected, PathRule{Pattern: s.Pattern, Reason: s.Reason, RE: re})
+		pr := PathRule{Pattern: s.Pattern, Reason: s.Reason, Technique: s.Mitre, RE: re}
+		rs.Protected = append(rs.Protected, pr)
+		rs.TechniqueIndex[pr.RuleID()] = s.Mitre
 	}
 	if len(rs.HardBlock) == 0 && len(rs.ForceConfirm) == 0 && len(rs.Protected) == 0 {
 		return nil, fmt.Errorf("rule set is empty")
@@ -143,11 +162,14 @@ func globToRegexp(glob string) (*regexp.Regexp, error) {
 }
 
 // Extra carries the policy-provided pattern extensions (PRD §5.5
-// rules.hard_block / rules.force_confirm / paths.protected).
+// rules.hard_block / rules.force_confirm / paths.protected). Techniques
+// (v0.7.0) optionally tags a user pattern with its MITRE ATT&CK technique;
+// untagged patterns contribute no technique to audit records.
 type Extra struct {
 	HardBlock    []string
 	ForceConfirm []string
 	Protected    []string
+	Techniques   map[string]string
 }
 
 // Compose extends a base rule set (usually the builtin one) with policy
@@ -155,31 +177,41 @@ type Extra struct {
 // anything — every hook process re-composes at startup).
 func Compose(base *RuleSet, extra Extra) (*RuleSet, error) {
 	rs := &RuleSet{
-		HardBlock:    append([]RegexRule(nil), base.HardBlock...),
-		ForceConfirm: append([]RegexRule(nil), base.ForceConfirm...),
-		Composition:  append([]RegexRule(nil), base.Composition...),
-		Protected:    append([]PathRule(nil), base.Protected...),
+		HardBlock:      append([]RegexRule(nil), base.HardBlock...),
+		ForceConfirm:   append([]RegexRule(nil), base.ForceConfirm...),
+		Composition:    append([]RegexRule(nil), base.Composition...),
+		Protected:      append([]PathRule(nil), base.Protected...),
+		TechniqueIndex: map[string]string{},
+	}
+	for id, t := range base.TechniqueIndex {
+		rs.TechniqueIndex[id] = t
 	}
 	for i, pat := range extra.HardBlock {
 		re, err := regexp.Compile(pat)
 		if err != nil {
 			return nil, fmt.Errorf("policy hard_block[%d]: %w", i, err)
 		}
-		rs.HardBlock = append(rs.HardBlock, RegexRule{ID: fmt.Sprintf("policy_hard_%d", i), Reason: "user policy pattern", RE: re})
+		r := RegexRule{ID: fmt.Sprintf("policy_hard_%d", i), Reason: "user policy pattern", Technique: extra.Techniques[pat], RE: re}
+		rs.HardBlock = append(rs.HardBlock, r)
+		rs.TechniqueIndex[r.ID] = r.Technique
 	}
 	for i, pat := range extra.ForceConfirm {
 		re, err := regexp.Compile(pat)
 		if err != nil {
 			return nil, fmt.Errorf("policy force_confirm[%d]: %w", i, err)
 		}
-		rs.ForceConfirm = append(rs.ForceConfirm, RegexRule{ID: fmt.Sprintf("policy_force_%d", i), Reason: "user policy pattern", RE: re})
+		r := RegexRule{ID: fmt.Sprintf("policy_force_%d", i), Reason: "user policy pattern", Technique: extra.Techniques[pat], RE: re}
+		rs.ForceConfirm = append(rs.ForceConfirm, r)
+		rs.TechniqueIndex[r.ID] = r.Technique
 	}
 	for i, pat := range extra.Protected {
 		re, err := globToRegexp(pat)
 		if err != nil {
 			return nil, fmt.Errorf("policy protected[%d]: %w", i, err)
 		}
-		rs.Protected = append(rs.Protected, PathRule{Pattern: pat, Reason: "user policy protected path", RE: re})
+		r := PathRule{Pattern: pat, Reason: "user policy protected path", Technique: extra.Techniques[pat], RE: re}
+		rs.Protected = append(rs.Protected, r)
+		rs.TechniqueIndex[r.RuleID()] = r.Technique
 	}
 	return rs, nil
 }

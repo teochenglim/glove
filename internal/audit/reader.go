@@ -12,11 +12,13 @@ import (
 )
 
 // Query filters records (PRD §6 `glove audit query`). Zero-value fields are
-// "no filter".
+// "no filter". Technique (v0.7.0) matches records whose MITRE ATT&CK tags
+// include the given technique.
 type Query struct {
-	Decision string
-	Agent    string
-	Since    time.Time
+	Decision  string
+	Agent     string
+	Technique string
+	Since     time.Time
 }
 
 // Load reads every record from the audit directory, oldest first: the live
@@ -101,6 +103,9 @@ func QueryRecords(dir string, q Query) ([]Record, error) {
 		if q.Agent != "" && r.Agent != q.Agent {
 			continue
 		}
+		if q.Technique != "" && !containsTechnique(r, q.Technique) {
+			continue
+		}
 		if !q.Since.IsZero() && r.Ts.Before(q.Since) {
 			continue
 		}
@@ -120,4 +125,13 @@ func Tail(dir string, n int) ([]Record, error) {
 		recs = recs[len(recs)-n:]
 	}
 	return recs, nil
+}
+
+func containsTechnique(r Record, technique string) bool {
+	for _, t := range r.Techniques {
+		if t == technique {
+			return true
+		}
+	}
+	return false
 }

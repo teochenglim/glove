@@ -313,10 +313,22 @@ type Record struct {
     Reasons        []string  `json:"reasons"`
     LatencyMs      int64     `json:"latency_ms"`
     GloveVersion   string    `json:"glove_version"`
+    Event          string    `json:"event,omitempty"`   // "" for decisions
+
+    // --- v0.7.0 (schema version 2): SIEM-ready (PRD §7 0.7.0) ---
+    SchemaVersion int      `json:"schema_version"`   // 2; 0 = legacy pre-0.7.0 record
+    Host          string   `json:"host,omitempty"`
+    User          string   `json:"user,omitempty"`
+    MachineID     string   `json:"machine_id,omitempty"`  // sha256(host+"/"+user)[:16]
+    Techniques    []string `json:"techniques,omitempty"`  // ATT&CK tags of the fired rules
+    PrevHash      string   `json:"prev_hash,omitempty"`   // previous record's record_hash
+    RecordHash    string   `json:"record_hash,omitempty"` // sha256 over this record with RecordHash zeroed
 }
 ```
 
-Written to `~/.local/share/glove/audit.jsonl` (macOS/Linux) or `%LOCALAPPDATA%\glove\audit.jsonl` (Windows). Rotation: 10 MB × 5 files.
+**Schema versioning:** the JSONL schema carries `schema_version` (1 = pre-0.7.0 records without chain fields; 2 = v0.7.0). It freezes at 1.0.0 alongside `contract.Verdict` — the audit schema is versioned independently of the §5.3 contract, which stays untouched. `glove audit verify` re-computes the hash chain (tamper-evidence, AC0.7.1): `record_hash` = SHA-256 over the record with `record_hash` zeroed, `prev_hash` links to the previous record across rotation boundaries; the first surviving record's `prev_hash` is the anchor (retention may have dropped the file it pointed into).
+
+Written to `~/.local/share/glove/audit.jsonl` (macOS/Linux) or `%LOCALAPPDATA%\glove\audit.jsonl` (Windows). Rotation: 10 MB × 5 files. SIEM export: `glove audit export --format cef|ecs|jsonl|csv`; outbound forwarding: §5.5 `[audit.sink]` (ADR 4 — post-decision, opt-in, off by default).
 
 ### 5.5 Policy schema
 
@@ -338,6 +350,24 @@ force_confirm = [
     "\\bsudo\\b",
     "\\bgit\\s+push\\s+--force\\b",
 ]
+# Optional MITRE ATT&CK tags for user patterns (v0.7.0): the tag lands in
+# the audit record's `techniques` when the pattern fires. Untagged patterns
+# contribute nothing.
+[rules.techniques]
+"terraform\\s+destroy" = "T1565"
+
+[audit.sink]
+# Outbound audit forwarding (v0.7.0, ADR 4): post-decision, opt-in, OFF by
+# default — omit the whole block to disable. One attempt per record, bounded
+# queue, failures audited locally (sink_error / sink_dropped events), never
+# on the decision path.
+#   type = "file" | "syslog" | "webhook"
+#   target = path | host:port or socket path | http(s) URL
+#   protocol (syslog) = "udp" (default) | "tcp" | "tcp+tls" | "unix"
+#   timeout_ms = post-decision drain window (default 500)
+#   queue_size = bounded delivery queue (default 256)
+type = "syslog"
+target = "127.0.0.1:514"
 
 [paths]
 protected = [
@@ -374,8 +404,9 @@ glove uninstall <agent>
 glove list                                  # installed agents + hook health
 glove doctor                                # verify hook chains end-to-end
 glove audit tail
-glove audit query [--decision block] [--since 24h] [--agent claude-code]
-glove audit export --format jsonl|csv --since <dur>
+glove audit query [--decision block] [--since 24h] [--agent claude-code] [--technique T1552]
+glove audit export --format jsonl|csv|cef|ecs --since <dur>
+glove audit verify                             # v0.7.0: tamper-evidence chain check
 glove policy validate <file>
 glove version
 ```
@@ -563,6 +594,68 @@ Each `0.X.0` is independently shippable. `1.0.0` is purely the stability marker.
 **Out of scope**: any feature not in 0.1.0–0.5.0.
 
 **Exit criteria**: M5 ships as `0.6.0`. This is the production candidate.
+
+---
+
+### 0.7.0 — SIEM-ready: tamper-evident audit + forwarding
+
+**Theme**: The audit trail becomes evidence a SIEM can trust and ingest — without touching the decision path. Exists because 1.0.0 freezes the audit JSONL schema: all schema evolution must land in 0.x.
+
+**Deliverables**
+- `internal/audit` hash chain: every record carries `prev_hash`/`record_hash`; `glove audit verify` walks live and rotated logs and reports the first broken record
+- MITRE ATT&CK technique tags on builtin + user rules; records inherit the tags of rules that fired; `audit query --technique <id>`
+- Machine identity fields (`host`, `user`, `machine_id`); audit JSONL schema versioned and documented (§5.4 amended when the code lands); `contract.Verdict` (§5.3) untouched
+- `glove audit export --format cef|ecs` (alongside the existing jsonl|csv)
+- Outbound sink, **off by default**: `[audit.sink]` in policy.toml — file, syslog (RFC 5424 to a local collector), webhook; async post-decision, bounded queue, failures self-audited; ADR 4 records the decision-path boundary before any sink code lands
+- `docs/siem.md` — ingestion recipes per format/sink
+
+**Acceptance tests**
+- [ ] Tamper-evidence: `glove audit verify` detects an edited, deleted, or truncated record in live or rotated logs and names the first broken record (exit non-zero); a clean log verifies green
+- [ ] The hash chain (prev_hash/record_hash per record) stays correct under concurrent hook writers and across rotation boundaries
+- [ ] Builtin and user rules carry MITRE ATT&CK technique tags; audit records inherit the tags of the rules that fired; `audit query --technique <id>` filters on them
+- [ ] Audit records carry machine identity (`host`, `user`, `machine_id`); the audit JSONL schema is versioned and documented (§5.4 amended in the same change); `contract.Verdict` (§5.3) is untouched
+- [ ] `glove audit export --format cef|ecs` emits SIEM-schema-valid output for the 100-record fixture (alongside the existing jsonl|csv)
+- [ ] The outbound sink is off by default with zero side effects unconfigured; when configured, delivery is async post-decision — a down or slow sink never changes a verdict, never breaches the §8 latency budgets, never retries unbounded, and its failures are themselves audit events
+- [ ] File, syslog (RFC 5424 to a local collector), and webhook sinks configure via `[audit.sink]` in policy.toml; malformed sink config fails `policy validate` with line numbers; the decision-path boundary is recorded in a new ADR before sink code lands
+
+**Out of scope**: cross-machine aggregation or any analytics service (0.8.0), session correlation (0.8.0), any change to decision semantics or the §8 budgets.
+
+---
+
+### 0.8.0 — Correlation + fleet (planned)
+
+**Theme**: From records to signals — session-level escalation correlation and fleet-friendly policy. Still local, still tighten-only.
+
+**Deliverables**
+- Session escalation correlation: repeated block/review events within one session tighten (never loosen) subsequent undecidable calls to review; threshold configurable in `policy.toml`
+- `glove audit stats` — top rules, techniques, agents, and decisions over `--since`, the local "SIEM-lite" view
+- Policy bundles: `glove policy pack` produces a checksummed bundle with origin metadata; `glove policy import --verify` refuses a tampered bundle; imports emit a policy audit event
+
+**Acceptance tests**
+- [ ] Repeated denies in one session tighten later gray-area calls; correlation can never loosen a deterministic verdict (invariant test)
+- [ ] `audit stats` summarizes top rules/techniques/agents/decisions over a `--since` window on the 10k fixture within 200ms
+- [ ] `policy import --verify` rejects a tampered bundle; a successful import is recorded as a policy audit event with the bundle checksum
+
+**Out of scope**: cross-machine aggregation services; any loosening path.
+
+---
+
+### 0.9.0 — Last RC (planned)
+
+**Theme**: Distribution + a fresh hardening pass over the 0.7/0.8 surface; the last stop before the freeze.
+
+**Deliverables**
+- Homebrew tap + checksum-verified install script (§9 promises, unshipped)
+- Failure-modes audit extended over sink, verify, correlation, and import failure paths (config-as-contract)
+- Benchmarks refreshed incl. sink/verify overhead; docs complete; `CHANGELOG.md` consolidated from RELEASE.md §4
+- External proofs recorded in RELEASE.md §5 (carried from 0.6.0: CI streak, signing certificates, outside-tester pass, 24h live soak)
+
+**Acceptance tests**
+- [ ] Homebrew formula and install script install + verify end-to-end (the fresh-HOME documented flow green through both)
+- [ ] Failure-modes doc covers every 0.7/0.8 failure path with pinning tests
+- [ ] `CHANGELOG.md` consolidated; benchmark suite re-measured (sink + verify overhead) within §8 budgets
+
+**Out of scope**: features. 1.0.0 ships after the external proofs land.
 
 ---
 

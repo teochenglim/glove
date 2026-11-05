@@ -41,7 +41,7 @@ func newCheckCmd() *cobra.Command {
 				ToolInput: raw,
 			}
 			start := time.Now()
-			v, segments := rt.Engine.EvaluateDetailed(in)
+			v, segments, _ := rt.Engine.EvaluateDetailed(in)
 			v.ModelAvailable = false
 
 			// Manual checks see the same Layer 2 view as the hook — minus the

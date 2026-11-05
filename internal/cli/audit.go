@@ -21,7 +21,7 @@ func newAuditCmd() *cobra.Command {
 		Short: "Inspect the decision audit log (PRD §5.4)",
 		Args:  cobra.NoArgs,
 	}
-	cmd.AddCommand(newAuditTailCmd(), newAuditQueryCmd(), newAuditExportCmd())
+	cmd.AddCommand(newAuditTailCmd(), newAuditQueryCmd(), newAuditExportCmd(), newAuditVerifyCmd())
 	return cmd
 }
 
@@ -46,10 +46,10 @@ func newAuditTailCmd() *cobra.Command {
 }
 
 func newAuditQueryCmd() *cobra.Command {
-	var decision, agent, since string
+	var decision, agent, technique, since string
 	cmd := &cobra.Command{
 		Use:   "query",
-		Short: "Filter records (--decision allow|review|block, --agent, --since <duration>)",
+		Short: "Filter records (--decision allow|review|block, --agent, --technique T1552, --since <duration>)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sinceTs, err := parseSince(since)
@@ -60,7 +60,7 @@ func newAuditQueryCmd() *cobra.Command {
 			if dir == "" {
 				return fmt.Errorf("no audit directory (no home context)")
 			}
-			recs, err := audit.QueryRecords(dir, audit.Query{Decision: decision, Agent: agent, Since: sinceTs})
+			recs, err := audit.QueryRecords(dir, audit.Query{Decision: decision, Agent: agent, Technique: technique, Since: sinceTs})
 			if err != nil {
 				return err
 			}
@@ -70,6 +70,7 @@ func newAuditQueryCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&decision, "decision", "", "filter by decision: allow, review or block")
 	cmd.Flags().StringVar(&agent, "agent", "", "filter by agent name (e.g. claude-code)")
+	cmd.Flags().StringVar(&technique, "technique", "", "filter by MITRE ATT&CK technique tag (e.g. T1552.001)")
 	cmd.Flags().StringVar(&since, "since", "", "only records newer than this duration (e.g. 24h)")
 	return cmd
 }
@@ -81,8 +82,10 @@ func newAuditExportCmd() *cobra.Command {
 		Short: "Export records to stdout (--format jsonl|csv, --since <duration>)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if format != "jsonl" && format != "csv" {
-				return fmt.Errorf("--format must be jsonl or csv, got %q", format)
+			switch format {
+			case "jsonl", "csv", "cef", "ecs":
+			default:
+				return fmt.Errorf("--format must be jsonl, csv, cef or ecs, got %q", format)
 			}
 			sinceTs, err := parseSince(since)
 			if err != nil {
@@ -103,6 +106,20 @@ func newAuditExportCmd() *cobra.Command {
 			switch format {
 			case "csv":
 				return writeCSV(os.Stdout, recs)
+			case "cef":
+				for _, r := range recs {
+					fmt.Println(audit.CEF(r))
+				}
+				return nil
+			case "ecs":
+				for _, r := range recs {
+					b, err := audit.ECS(r)
+					if err != nil {
+						return err
+					}
+					fmt.Println(string(b))
+				}
+				return nil
 			default:
 				for _, r := range recs {
 					b, err := json.Marshal(r)
@@ -115,9 +132,40 @@ func newAuditExportCmd() *cobra.Command {
 			}
 		},
 	}
-	cmd.Flags().StringVar(&format, "format", "jsonl", "output format: jsonl or csv")
+	cmd.Flags().StringVar(&format, "format", "jsonl", "output format: jsonl, csv, cef or ecs")
 	cmd.Flags().StringVar(&since, "since", "", "only records newer than this duration (e.g. 24h)")
 	return cmd
+}
+
+// newAuditVerifyCmd walks the tamper-evidence chain (v0.7.0 AC0.7.1) and
+// exits 1 naming the first broken record when the log fails verification.
+func newAuditVerifyCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "verify",
+		Short: "Verify the audit hash chain — detects edited, deleted or truncated records",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := paths.DataDir()
+			if dir == "" {
+				return fmt.Errorf("no audit directory (no home context)")
+			}
+			rep, err := audit.Verify(dir)
+			if err != nil {
+				return err
+			}
+			if rep.Ok() {
+				fmt.Fprintf(os.Stdout, "ok: %d record(s) verified (%d legacy pre-0.7.0, unchained)\n", rep.Verified, rep.Legacy)
+				return nil
+			}
+			b := rep.Breaks[0]
+			detail := b.Detail
+			if detail != "" {
+				detail = " — " + detail
+			}
+			return fmt.Errorf("TAMPERED: %s:%d %s%s (%d record(s) verified before the break)",
+				b.File, b.Line, b.Kind, detail, rep.Verified)
+		},
+	}
 }
 
 // parseSince converts "24h"-style durations into a cutoff timestamp; empty

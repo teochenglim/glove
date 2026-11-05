@@ -39,6 +39,25 @@ through the live hook path and asserts the decision is always delivered.
 | README coverage matrix drift | `glove list --matrix --check` exits 1 with a diff | `TestAC_0_5_6_matrix_matches_readme` |
 | engine misbehaves after install | install verification fails the command (exit 1), tells the user to run doctor | `TestAC_0_5_2_kilo_install_verify_flow` |
 
+## Audit forwarding + tamper evidence (v0.7.0, ADR 4)
+
+The sink is post-decision, opt-in, off by default: with no `[audit.sink]`
+block, no dispatcher is constructed and there are zero side effects. Its
+failure contract is the audit-write contract extended: a delivery can never
+change a delivered verdict.
+
+| Failure | Decision | Pinned by |
+|---|---|---|
+| no `[audit.sink]` in any policy | zero side effects — no file handle, no socket, no goroutine | `TestAC_0_7_5_sink_off_by_default` |
+| sink target unreachable / refusing (dead webhook, down collector) | decision, exit code and verdict latency unchanged; delivery attempted once, no retry; `sink_error` event written locally | `TestAC_0_7_5_sink_failure_never_affects_verdict`, `TestAC_0_7_6_sinks_deliver_rfc5424_and_webhook` |
+| sink stalls (slow collector) | the drain window (`timeout_ms`, default 500ms) bounds the post-decision wait; unconfirmed deliveries are counted as not delivered and audited via `sink_error` | `TestAC_0_7_5_sink_failure_never_affects_verdict` (slow-webhook subtest) |
+| sink queue overflows | records drop, never block; the drop count is audited via `sink_dropped` | `TestAC_0_7_6_sinks_deliver_rfc5424_and_webhook` (overflow subtest) |
+| malformed sink config (bad type, missing target, non-http webhook, bad protocol) | `policy validate` rejects with key path + source line; a hook treats it as invalid policy → fail closed (AC0.3.7's rule) | `TestAC_0_7_6_sink_config_validate`, `TestAC_0_3_7_invalid_policy_fails_loudly` |
+| audit log edited / record deleted / file truncated | `glove audit verify` names the first broken record (edited / chain-gap / corrupt-line) and exits non-zero | `TestAC_0_7_1_verify_detects_edits_deletes_truncation` |
+| pre-0.7.0 (schema-1) records in the log | verify skips them as legacy — never a false tamper alarm; the first v0.7.0 record anchors the chain | `TestAC_0_7_1_verify_detects_edits_deletes_truncation` (legacy subtest) |
+| sink self-audit events themselves | written to the local log only, never forwarded — no delivery loop | `TestAC_0_7_5_sink_off_by_default` (forwarding does not duplicate locally) |
+| rotation drops the oldest chain file | the first surviving record's `prev_hash` is the anchor — retention is never a false tamper alarm | `TestAC_0_7_1_chain_concurrent_and_rotation` |
+
 ## Vendor-side fail-open surfaces (documented, mitigated, not ours to fix)
 
 | Surface | Mitigation | Documented in |

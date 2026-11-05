@@ -5,33 +5,45 @@
 # RE2 has no negative lookahead, so git_force_push deviates from the PRD's
 # literal sketch: `--force([^a-zA-Z0-9_-]|$)` matches a bare --force and
 # never --force-with-lease. Recorded in RELEASE/v0.1.0.md notes.
+#
+# `mitre` (v0.7.0): the MITRE ATT&CK technique tag inherited by audit
+# records when the rule fires (AC0.7.2). Coarse technique-level mapping —
+# the reason text stays the precise story.
 hard_block:
   - id: rm_root
     pattern: "rm\\s+(-[a-zA-Z]*[rf][a-zA-Z]*\\s+)?/(\\s|$)"
     reason: "recursive delete on /"
+    mitre: "T1485"
   - id: rm_root_wildcard
     pattern: "rm\\s+-[a-zA-Z]*[rf][a-zA-Z]*\\s+/\\*"
     reason: "recursive force delete of root contents"
+    mitre: "T1485"
   - id: mkfs
     pattern: "\\bmkfs(\\.[a-z0-9]+)?\\b"
     reason: "filesystem format"
+    mitre: "T1561"
   - id: dd_to_device
     pattern: "\\bdd\\b.*\\bof=/dev/(sd|hd|nvme|disk)"
     reason: "raw write to block device"
+    mitre: "T1561"
   - id: fork_bomb
     pattern: ":\\(\\)\\s*\\{\\s*:\\|:&\\s*\\}\\s*;\\s*:"
     reason: "fork bomb"
+    mitre: "T1499"
 
 force_confirm:
   - id: sudo
     pattern: "\\bsudo\\b"
     reason: "privilege escalation"
+    mitre: "T1548.003"
   - id: git_force_push
     pattern: "\\bgit\\s+push\\b.*\\s--force([^a-zA-Z0-9_-]|$)"
     reason: "force push without lease"
+    mitre: "T1565"
   - id: chmod_777
     pattern: "\\bchmod\\s+(-R\\s+)?777\\b"
     reason: "world-writable permissions"
+    mitre: "T1222.002"
 
 # Composition-specific rules (v0.2.0, PRD §7): evaluated per chain segment
 # and per pipe pair ("a | b" joined) by the Layer 1 splitter — a segment-
@@ -40,21 +52,29 @@ composition:
   - id: pipe_to_shell
     pattern: "\\|\\s*(ba|z|da|k|a|)sh\\b"
     reason: "command piped into a shell"
+    mitre: "T1059.004"
   - id: curl_pipe_bash
     pattern: "\\b(curl|wget)\\b[^|]*\\|\\s*(ba|z|)sh\\b"
     reason: "download piped into a shell"
+    mitre: "T1059.004"
   - id: eval_of_download
     pattern: "\\b(ba|z|)sh\\s+-c\\s+[\"']?\\$\\("
     reason: "shell executes the output of a command substitution"
+    mitre: "T1059.004"
 
 protected_paths:
   - pattern: "**/.ssh/id_*"
     reason: "SSH private key"
+    mitre: "T1552.004"
   - pattern: "**/.aws/credentials"
     reason: "AWS credentials"
+    mitre: "T1552.001"
   - pattern: "**/.env"
     reason: ".env file"
+    mitre: "T1552.001"
   - pattern: "**/.env.*"
     reason: ".env variant"
+    mitre: "T1552.001"
   - pattern: "**/.config/gh/hosts.yml"
     reason: "GitHub CLI token"
+    mitre: "T1552.001"

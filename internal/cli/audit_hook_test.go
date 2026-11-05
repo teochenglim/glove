@@ -183,7 +183,7 @@ func TestAC_0_3_2_query_10k_under_200ms(t *testing.T) {
 		if i%10 == 0 {
 			decision = "block"
 		}
-		if err := w.Write(audit.Record{
+		if _, err := w.Write(audit.Record{
 			AuditID: fmt.Sprintf("rec-%d", i), Agent: "claude-code", Tool: "Bash",
 			Decision: decision, Risk: "low", GloveVersion: "0.3.0",
 		}); err != nil {

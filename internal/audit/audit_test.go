@@ -30,7 +30,7 @@ func TestAC_0_3_1_record_fields_populated(t *testing.T) {
 		Reasons:   []string{"rm_root: recursive delete on /"},
 		LatencyMs: 3, GloveVersion: "0.3.0",
 	}
-	if err := w.Write(want); err != nil {
+	if _, err := w.Write(want); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	got, err := Load(dir)
@@ -69,7 +69,7 @@ func TestAC_0_3_4_rotation_at_10mb(t *testing.T) {
 	n := 0
 	for size := int64(0); size < 15<<20; size += int64(len(big) + 150) {
 		rec := Record{AuditID: "r", Tool: big, GloveVersion: "0.3.0", Reasons: []string{strings.Repeat("y", 100)}}
-		if err := w.Write(rec); err != nil {
+		if _, err := w.Write(rec); err != nil {
 			t.Fatalf("write %d: %v", n, err)
 		}
 		n++
@@ -96,7 +96,7 @@ func TestAC_0_3_4_rotation_keeps_five(t *testing.T) {
 	w.maxFiles = 5
 	for i := 0; i < 60; i++ {
 		rec := Record{AuditID: time.Duration(i).String(), Tool: strings.Repeat("t", 40), GloveVersion: "0.3.0"}
-		if err := w.Write(rec); err != nil {
+		if _, err := w.Write(rec); err != nil {
 			t.Fatalf("write %d: %v", i, err)
 		}
 	}
@@ -181,7 +181,7 @@ func TestQueryFilters(t *testing.T) {
 		rec := s.rec
 		age := s.age
 		w.Now = func() time.Time { return fixed.Add(-age) }
-		if err := w.Write(rec); err != nil {
+		if _, err := w.Write(rec); err != nil {
 			t.Fatalf("write: %v", err)
 		}
 	}

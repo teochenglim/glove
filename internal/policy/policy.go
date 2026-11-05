@@ -12,9 +12,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 
@@ -34,6 +36,7 @@ type Policy struct {
 	Rules   Rules            `toml:"rules"`
 	Paths   PathsConf        `toml:"paths"`
 	Laya    Laya             `toml:"laya"`
+	Audit   AuditConf        `toml:"audit"`
 	Agents  map[string]Agent `toml:"agents"`
 }
 
@@ -43,8 +46,31 @@ type General struct {
 }
 
 type Rules struct {
-	HardBlock    []string `toml:"hard_block"`
-	ForceConfirm []string `toml:"force_confirm"`
+	HardBlock    []string          `toml:"hard_block"`
+	ForceConfirm []string          `toml:"force_confirm"`
+	Techniques   map[string]string `toml:"techniques"` // v0.7.0: user pattern → MITRE ATT&CK tag
+}
+
+// AuditConf carries the audit-forwarding config (v0.7.0, ADR 4): outbound,
+// post-decision, off by default — an empty Sink.Type disables everything.
+type AuditConf struct {
+	Sink Sink `toml:"sink"`
+}
+
+// Sink is the [audit.sink] block. Type: file | syslog | webhook; Target:
+// path | host:port or socket path | http(s) URL; Protocol (syslog only):
+// udp (default) | tcp | tcp+tls | unix. TimeoutMs is the post-decision
+// drain window; QueueSize bounds the delivery queue. TypeLine/TargetLine
+// carry the source line numbers for `policy validate` errors (AC0.7.6) and
+// are excluded from the TOML round-trip (policy.Hash() stays stable).
+type Sink struct {
+	Type       string `toml:"type"`
+	Target     string `toml:"target"`
+	Protocol   string `toml:"protocol"`
+	QueueSize  int    `toml:"queue_size"`
+	TimeoutMs  int    `toml:"timeout_ms"`
+	TypeLine   int    `toml:"-"`
+	TargetLine int    `toml:"-"`
 }
 
 type PathsConf struct {
@@ -150,12 +176,19 @@ func mergeFile(p *Policy, path string) error {
 	if err := toml.Unmarshal(raw, &over); err != nil {
 		return fmt.Errorf("%s: %s", path, syntaxError(err))
 	}
+	// Line numbers for sink-config validation errors (AC0.7.6): the TOML
+	// decoder does not expose them per key, so the raw text is scanned for
+	// the [audit.sink] section's type/target keys.
+	typeLine, targetLine := sinkKeyLines(string(raw))
+	over.Audit.Sink.TypeLine, over.Audit.Sink.TargetLine = typeLine, targetLine
 	mergeInto(p, &over)
 	return nil
 }
 
 // mergeInto applies over on top of p: non-empty scalars and non-nil slices
-// override, list-valued keys append (see the package comment).
+// override, list-valued keys append (see the package comment). The
+// rules.techniques map (v0.7.0) merges key-wise — adding a technique never
+// wipes another file's entries.
 func mergeInto(p, over *Policy) {
 	if over.General.Mode != "" {
 		p.General.Mode = over.General.Mode
@@ -165,6 +198,14 @@ func mergeInto(p, over *Policy) {
 	}
 	p.Rules.HardBlock = append(p.Rules.HardBlock, over.Rules.HardBlock...)
 	p.Rules.ForceConfirm = append(p.Rules.ForceConfirm, over.Rules.ForceConfirm...)
+	if len(over.Rules.Techniques) > 0 {
+		if p.Rules.Techniques == nil {
+			p.Rules.Techniques = map[string]string{}
+		}
+		for k, v := range over.Rules.Techniques {
+			p.Rules.Techniques[k] = v
+		}
+	}
 	p.Paths.Protected = append(p.Paths.Protected, over.Paths.Protected...)
 	if over.Laya.ModelPath != "" {
 		p.Laya.ModelPath = over.Laya.ModelPath
@@ -184,12 +225,58 @@ func mergeInto(p, over *Policy) {
 	if len(over.Laya.ConfidenceReviewBand) > 0 {
 		p.Laya.ConfidenceReviewBand = over.Laya.ConfidenceReviewBand
 	}
+	if over.Audit.Sink.Type != "" {
+		p.Audit.Sink.Type = over.Audit.Sink.Type
+	}
+	if over.Audit.Sink.Target != "" {
+		p.Audit.Sink.Target = over.Audit.Sink.Target
+	}
+	if over.Audit.Sink.Protocol != "" {
+		p.Audit.Sink.Protocol = over.Audit.Sink.Protocol
+	}
+	if over.Audit.Sink.QueueSize > 0 {
+		p.Audit.Sink.QueueSize = over.Audit.Sink.QueueSize
+	}
+	if over.Audit.Sink.TimeoutMs > 0 {
+		p.Audit.Sink.TimeoutMs = over.Audit.Sink.TimeoutMs
+	}
+	if over.Audit.Sink.TypeLine > 0 {
+		p.Audit.Sink.TypeLine = over.Audit.Sink.TypeLine
+	}
+	if over.Audit.Sink.TargetLine > 0 {
+		p.Audit.Sink.TargetLine = over.Audit.Sink.TargetLine
+	}
 	for name, a := range over.Agents {
 		if p.Agents == nil {
 			p.Agents = map[string]Agent{}
 		}
 		p.Agents[name] = a
 	}
+}
+
+// sinkKeyLines finds the source lines of `type =` and `target =` inside the
+// `[audit.sink]` section of a policy file (0 = absent).
+func sinkKeyLines(raw string) (typeLine, targetLine int) {
+	inSink := false
+	for i, line := range strings.Split(raw, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			inSink = trimmed == "[audit.sink]"
+			continue
+		}
+		if !inSink {
+			continue
+		}
+		key := strings.SplitN(trimmed, "=", 2)[0]
+		key = strings.TrimSpace(key)
+		if key == "type" && typeLine == 0 {
+			typeLine = i + 1
+		}
+		if key == "target" && targetLine == 0 {
+			targetLine = i + 1
+		}
+	}
+	return typeLine, targetLine
 }
 
 // findProjectPolicy walks up from the working directory looking for
@@ -249,10 +336,76 @@ func (p *Policy) Validate() error {
 			errs = append(errs, fmt.Sprintf("paths.protected[%d]: invalid glob: %v", i, err))
 		}
 	}
+	errs = append(errs, p.validateSink()...)
+	errs = append(errs, p.validateTechniques()...)
 	if len(errs) == 0 {
 		return nil
 	}
 	return fmt.Errorf("%d policy error(s):\n  %s", len(errs), joinLines(errs))
+}
+
+// validateSink checks the [audit.sink] block (v0.7.0, ADR 4). Errors carry
+// the source line number when the key came from a file (AC0.7.6).
+func (p *Policy) validateSink() []string {
+	var errs []string
+	s := p.Audit.Sink
+	line := func(n int) string {
+		if n > 0 {
+			return fmt.Sprintf(" (line %d)", n)
+		}
+		return ""
+	}
+	switch s.Type {
+	case "":
+		if s.Target != "" {
+			errs = append(errs, fmt.Sprintf("audit.sink.target%s: set without audit.sink.type", line(s.TargetLine)))
+		}
+		return errs
+	case "file":
+		if s.Target == "" {
+			errs = append(errs, fmt.Sprintf("audit.sink.target%s: file sink requires a path", line(s.TargetLine)))
+		}
+	case "syslog":
+		if s.Target == "" {
+			errs = append(errs, fmt.Sprintf("audit.sink.target%s: syslog sink requires host:port or a socket path", line(s.TargetLine)))
+		}
+		switch s.Protocol {
+		case "", "udp", "tcp", "tcp+tls", "unix":
+		default:
+			errs = append(errs, fmt.Sprintf("audit.sink.protocol%s: %q is not udp|tcp|tcp+tls|unix", line(s.TypeLine), s.Protocol))
+		}
+	case "webhook":
+		u, err := url.Parse(s.Target)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+			errs = append(errs, fmt.Sprintf("audit.sink.target%s: webhook sink requires an http(s) URL, got %q", line(s.TargetLine), s.Target))
+		}
+	default:
+		errs = append(errs, fmt.Sprintf("audit.sink.type%s: %q is not file|syslog|webhook", line(s.TypeLine), s.Type))
+	}
+	if s.QueueSize < 0 || s.QueueSize > 1_000_000 {
+		errs = append(errs, fmt.Sprintf("audit.sink.queue_size: %d must be within [0, 1000000]", s.QueueSize))
+	}
+	if s.TimeoutMs < 0 || s.TimeoutMs > 60000 {
+		errs = append(errs, fmt.Sprintf("audit.sink.timeout_ms: %d must be within [0, 60000]", s.TimeoutMs))
+	}
+	return errs
+}
+
+// validateTechniques checks the [rules.techniques] map (v0.7.0): keys are
+// user patterns (must compile), values are MITRE ATT&CK tags
+// (T\\d{4}(.\\d{3})?).
+func (p *Policy) validateTechniques() []string {
+	var errs []string
+	tagShape := regexp.MustCompile(`^T\d{4}(\.\d{3})?$`)
+	for pat, tag := range p.Rules.Techniques {
+		if _, err := regexp.Compile(pat); err != nil {
+			errs = append(errs, fmt.Sprintf("rules.techniques[%q]: invalid pattern regexp: %v", pat, err))
+		}
+		if !tagShape.MatchString(tag) {
+			errs = append(errs, fmt.Sprintf("rules.techniques[%q]: %q is not a MITRE ATT&CK technique tag (T\\d{4} or T\\d{4}.\\d{3})", pat, tag))
+		}
+	}
+	return errs
 }
 
 // globToRegexpSource mirrors internal/rules.globToRegexp's translation for
