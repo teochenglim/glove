@@ -76,6 +76,15 @@ hook path.
 | bundled policy invalid for this glove | import refuses — a bundle of an invalid policy never installs (`policy pack` also refuses at the source) | `TestAC_0_8_3_import_emits_policy_event` (LoadFileContent gate) |
 | policy_import event write fails after a successful import | stderr warning — the import stands, the trail hiccup must not undo it | `TestAC_0_8_3_import_emits_policy_event` |
 
+## Distribution (v0.9.0)
+
+| Failure | Decision | Pinned by |
+|---|---|---|
+| downloaded release artifact fails its SHA-256 (tampered archive or tampered checksums.txt) | `scripts/install.sh` refuses BEFORE extracting or installing anything — the install dir stays untouched | `TestAC_0_9_1_install_script_checksum_verified` (tampered + unlisted-asset subtests) |
+| asset missing from checksums.txt | refuse loudly — an unverified artifact is never unpacked | `TestAC_0_9_1_install_script_checksum_verified` (unlisted-asset subtest) |
+| Homebrew formula URLs drift from the release artifact naming | `make check` fails (config-as-contract: the formula's four URLs must match the release workflow's matrix) | `TestAC_0_9_1_formula_matches_release_layout` |
+| CHANGELOG.md drifts from RELEASE.md §4 | `make check` fails (CHANGELOG is the verbatim consolidation) | `TestAC_0_9_3_changelog_consolidated` |
+
 ## Vendor-side fail-open surfaces (documented, mitigated, not ours to fix)
 
 | Surface | Mitigation | Documented in |

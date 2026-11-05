@@ -21,7 +21,8 @@ rules:
         # internal/cli/doctor.go: the bench spawns the glove binary itself
         # (os.Executable() -> variable) to measure hook cold start; it never
         # touches agent input. Kept here deliberately — do not widen.
-        - internal/cli/doctor.go
+        # '**/' prefix = unanchored under Semgrepignore v2 (the 0.9.0 CI fix).
+        - '**/internal/cli/doctor.go'
     patterns:
       - pattern-either:
           - pattern: exec.Command($CMD, ...)
@@ -67,5 +68,6 @@ rules:
     languages: [go]
     paths:
       include:
-        - internal/decision/
+        # '**/' prefix = unanchored under Semgrepignore v2 (the 0.9.0 CI fix).
+        - '**/internal/decision/'
     pattern: time.Now()

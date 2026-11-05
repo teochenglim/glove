@@ -222,7 +222,12 @@ func deliverSyslog(cfg SinkConfig, r Record) error {
 	case "udp", "tcp", "unix":
 		conn, err = net.DialTimeout(proto, cfg.Target, syslogDialTimeout)
 	case "tcp+tls":
-		conn, err = tls.DialWithDialer(&net.Dialer{Timeout: syslogDialTimeout}, "tcp", cfg.Target, &tls.Config{})
+		// MinVersion is explicit (matches Go's own default, Go 1.22+): a
+		// syslog client must never negotiate below TLS 1.2, and 1.0/1.1 stay
+		// rejected even against a legacy collector (semgrep missing-ssl-
+		// minversion, 0.9.0 CI fix). 1.2 rather than 1.3 keeps older
+		// on-prem collectors connectable — the user chose this target.
+		conn, err = tls.DialWithDialer(&net.Dialer{Timeout: syslogDialTimeout}, "tcp", cfg.Target, &tls.Config{MinVersion: tls.VersionTLS12})
 	default:
 		return fmt.Errorf("syslog protocol %q is not udp|tcp|tcp+tls|unix", proto)
 	}

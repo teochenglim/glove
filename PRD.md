@@ -716,13 +716,13 @@ Each `0.X.0` is independently shippable. `1.0.0` is purely the stability marker.
 
 ## 9. Distribution
 
-- **Binaries**: GoReleaser → GitHub Releases per-platform tarball
-- **Checksums**: `checksums.txt` with SHA-256 per artifact
-- **macOS**: notarized + signed
+- **Binaries**: GitHub Releases per-platform tarball (`glove-v<ver>-<goos>-<goarch>.tar.gz`; GoReleaser evaluated at 0.6.0 and not adopted — the GH Actions workflow is the release path)
+- **Checksums**: `checksums.txt` with SHA-256 per artifact, verified pre-publish
+- **Install script**: `scripts/install.sh` (v0.9.0) — downloads a pinned release artifact and verifies its SHA-256 against `checksums.txt` **before** extracting or installing anything; `GLOVE_INSTALL_DIR`/`GLOVE_INSTALL_BASE_URL` overridable. The script verifies the artifact, not itself.
+- **macOS**: notarized + signed (pending maintainer certificates — releases are checksum-gated until then)
 - **Windows**: deferred — no windows artifacts ship (2026-11-04, PRD §8); Authenticode returns with windows support
-- **Homebrew**: `brew install <org>/tap/glove`
-- **Scoop**: `scoop install glove` (via manifest)
-- **Direct**: `curl -sSL https://get.glove.dev | sh` (verifies checksum)
+- **Homebrew**: formula at `packaging/homebrew/glove.rb` (v0.9.0; per-release sha256 fill via `scripts/update-homebrew-sha.sh`); the tap repo is a maintainer action; the live `brew install` is the outside-tester pass
+- **Scoop**: `scoop install glove` (via manifest) — unscheduled
 - **Model**: first `serve` prompts and downloads with SHA-256 verification; `--model-path` for airgapped deployments
 
 ---

@@ -97,3 +97,24 @@ run glove installed for a working day and record the result in
 - Windows has no timing gate by design (the CI windows job runs
   `go test -short`); its cold-start number above is informational.
 - Run benches on an otherwise idle machine; the median is the gate.
+
+## v0.9.0 — sink + verify overhead (off the decision path)
+
+Measured 2026-11-05, local macOS arm64, Go 1.27.3, otherwise idle
+(`make stress` asserts the budgets via
+`TestAC_0_9_3_sink_verify_overhead_budgeted`; the decision-path §8 budgets
+are unaffected by construction — the hook dispatches the sink strictly
+after the verdict is rendered, and `audit verify` is an offline CLI
+command):
+
+| Measurement | Result | Budget |
+|---|---|---|
+| `audit verify` over 10,000 chained records (re-hash + linkage walk) | **~0.50s** wall | < 1s |
+| file sink: 50 deliveries + drain (enqueue → confirmed delivered) | **< 1ms** | < 50ms |
+| syslog (udp, loopback) delivery + drain | **~50ms** (dominated by the deliberate 50ms ICMP port-unreachable read window) | < 100ms |
+| webhook delivery | per-attempt client timeout 2s; drain window bounds the hook's wait (`timeout_ms`, default 500ms) | bounded by design |
+
+Reading: the decision path pays nothing for the sink or verify — the
+`latency_ms` in an audit record is stamped before the sink is consulted,
+and verify never runs on the hook path. A dead or stalling collector
+extends only the post-decision drain window, never the §8 budgets.
