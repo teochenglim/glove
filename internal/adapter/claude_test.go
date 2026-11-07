@@ -303,6 +303,7 @@ var (
 	_ Adapter = (*OpenCode)(nil)
 	_ Adapter = (*Cursor)(nil)
 	_ Adapter = (*Gemini)(nil)
+	_ Adapter = (*Goose)(nil)
 	_ Adapter = (*Zed)(nil)
 )
 
@@ -417,6 +418,33 @@ func shimRender(t *testing.T, d contract.Decision, raw []byte) {
 	}
 }
 
+// gooseRender asserts goose's hook decision vocabulary: allow/block only —
+// review tightens to deny (the vendor has no ask; documented loudly).
+func gooseRender(t *testing.T, d contract.Decision, raw []byte) {
+	t.Helper()
+	var got struct {
+		Decision string `json:"decision"`
+		Reason   string `json:"reason"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("render %s: not JSON: %v\n%s", d, err, raw)
+	}
+	want := map[contract.Decision]string{
+		contract.DecisionAllow:  "allow",
+		contract.DecisionReview: "block", // tighten-only: goose hooks cannot ask
+		contract.DecisionBlock:  "block",
+	}[d]
+	if got.Decision != want {
+		t.Errorf("render %s: decision = %q, want %q", d, got.Decision, want)
+	}
+	if d == contract.DecisionReview && !strings.Contains(got.Reason, "review rendered as deny") {
+		t.Errorf("render %s: review reason must say so, got %q", d, got.Reason)
+	}
+	if d == contract.DecisionBlock && got.Reason == "" {
+		t.Errorf("render %s: block must carry a reason", d)
+	}
+}
+
 func conformSpecs() []conformSpec {
 	return []conformSpec{
 		{name: "claude-code", flavor: flavorJSON,
@@ -437,6 +465,11 @@ func conformSpecs() []conformSpec {
 		{name: "gemini", flavor: flavorJSON,
 			newAt: func(dir string) Adapter { return NewGeminiAt(filepath.Join(dir, "gemini", "settings.json")) },
 			stdin: "gemini.stdin.json", tool: "run_shell_command", render: geminiRender},
+		{name: "goose", flavor: flavorShim,
+			newAt: func(dir string) Adapter {
+				return NewGooseAt(filepath.Join(dir, "agents", "plugins", "glove", "hooks", "hooks.json"))
+			},
+			stdin: "goose.stdin.json", tool: "shell", render: gooseRender},
 		{name: "zed", flavor: flavorAudit,
 			newAt: func(dir string) Adapter { return NewZed() },
 			stdin: "zed.stdin.json", tool: "terminal", render: shimRender},
@@ -450,193 +483,201 @@ func TestAC_0_5_1_conformance_all_adapters(t *testing.T) {
 	for _, spec := range conformSpecs() {
 		spec := spec
 		t.Run(spec.name, func(t *testing.T) {
-			dir := t.TempDir()
-			a := spec.newAt(dir)
+			runConformanceSpec(t, spec)
+		})
+	}
+}
 
-			// --- registry ---
-			t.Run("ac_0_5_1_registry", func(t *testing.T) {
-				if a.Name() != spec.name {
-					t.Errorf("Name() = %q, want %q", a.Name(), spec.name)
-				}
-				if a.HookEntry() == "" {
-					t.Error("HookEntry() must not be empty")
-				}
-				if _, ok := For(a.Name()); !ok {
-					t.Errorf("For(%q) does not resolve", a.Name())
-				}
-			})
+// runConformanceSpec is the shared harness body behind TestAC_0_5_1 —
+// v0.10.0 (AC0.10.1) runs the goose spec through the same phases.
+func runConformanceSpec(t *testing.T, spec conformSpec) {
+	{
+		dir := t.TempDir()
+		a := spec.newAt(dir)
 
-			// --- parse: the agent's native stdin fixture ---
-			t.Run("ac_0_5_1_parse_fixture", func(t *testing.T) {
-				raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "conformance", spec.stdin))
-				if err != nil {
-					t.Fatalf("read fixture %s: %v", spec.stdin, err)
-				}
-				in, err := a.ParseHookInput(raw)
-				if err != nil {
-					t.Fatalf("parse fixture: %v", err)
-				}
-				if in.Agent != spec.name {
-					t.Errorf("Agent = %q, want %q", in.Agent, spec.name)
-				}
-				if in.ToolName != spec.tool {
-					t.Errorf("ToolName = %q, want %q", in.ToolName, spec.tool)
-				}
-				if !strings.Contains(string(in.ToolInput), "ls -la") {
-					t.Errorf("ToolInput = %s, want the command text", in.ToolInput)
-				}
-				if _, err := a.ParseHookInput([]byte(`{`)); err == nil {
-					t.Error("broken stdin JSON must error")
-				}
-			})
-
-			// --- render: the agent's native decision vocabulary ---
-			t.Run("ac_0_5_1_render_native", func(t *testing.T) {
-				for _, d := range []contract.Decision{contract.DecisionAllow, contract.DecisionReview, contract.DecisionBlock} {
-					raw, err := a.RenderVerdict(contract.Verdict{
-						Decision: d,
-						Risk:     contract.RiskHigh,
-						Reasons:  []string{"rm_root: recursive delete on /"},
-					})
-					if err != nil {
-						t.Fatalf("render %s: %v", d, err)
-					}
-					spec.render(t, d, raw)
-				}
-			})
-
-			if spec.flavor == flavorAudit {
-				// zed: audit mode installs nothing, uninstall is a no-op,
-				// status reports the audit posture as healthy.
-				t.Run("ac_0_5_1_audit_mode", func(t *testing.T) {
-					var out bytes.Buffer
-					if err := a.Install(context.Background(), InstallOptions{Writer: &out}); err != nil {
-						t.Fatalf("install: %v", err)
-					}
-					if !strings.Contains(out.String(), "audit mode") {
-						t.Errorf("install output = %q, want the audit-mode statement", out.String())
-					}
-					if err := a.Uninstall(context.Background()); err != nil {
-						t.Fatalf("uninstall: %v", err)
-					}
-					st := StatusOf(a)
-					if st.Mode != ModeAudit {
-						t.Errorf("Mode = %q, want audit", st.Mode)
-					}
-					if st.HookInstalled {
-						t.Error("audit adapter must never report a hook installed")
-					}
-					if st.Problem != "" {
-						t.Errorf("audit posture must be healthy, got problem %q", st.Problem)
-					}
-				})
-				return // audit adapter: no config install phases
+		// --- registry ---
+		t.Run("ac_0_5_1_registry", func(t *testing.T) {
+			if a.Name() != spec.name {
+				t.Errorf("Name() = %q, want %q", a.Name(), spec.name)
 			}
+			if a.HookEntry() == "" {
+				t.Error("HookEntry() must not be empty")
+			}
+			if _, ok := For(a.Name()); !ok {
+				t.Errorf("For(%q) does not resolve", a.Name())
+			}
+		})
 
-			// --- install: diff, backup, idempotency ---
-			t.Run("ac_0_5_1_install", func(t *testing.T) {
+		// --- parse: the agent's native stdin fixture ---
+		t.Run("ac_0_5_1_parse_fixture", func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "conformance", spec.stdin))
+			if err != nil {
+				t.Fatalf("read fixture %s: %v", spec.stdin, err)
+			}
+			in, err := a.ParseHookInput(raw)
+			if err != nil {
+				t.Fatalf("parse fixture: %v", err)
+			}
+			if in.Agent != spec.name {
+				t.Errorf("Agent = %q, want %q", in.Agent, spec.name)
+			}
+			if in.ToolName != spec.tool {
+				t.Errorf("ToolName = %q, want %q", in.ToolName, spec.tool)
+			}
+			if !strings.Contains(string(in.ToolInput), "ls -la") {
+				t.Errorf("ToolInput = %s, want the command text", in.ToolInput)
+			}
+			if _, err := a.ParseHookInput([]byte(`{`)); err == nil {
+				t.Error("broken stdin JSON must error")
+			}
+		})
+
+		// --- render: the agent's native decision vocabulary ---
+		t.Run("ac_0_5_1_render_native", func(t *testing.T) {
+			for _, d := range []contract.Decision{contract.DecisionAllow, contract.DecisionReview, contract.DecisionBlock} {
+				raw, err := a.RenderVerdict(contract.Verdict{
+					Decision: d,
+					Risk:     contract.RiskHigh,
+					Reasons:  []string{"rm_root: recursive delete on /"},
+				})
+				if err != nil {
+					t.Fatalf("render %s: %v", d, err)
+				}
+				spec.render(t, d, raw)
+			}
+		})
+
+		if spec.flavor == flavorAudit {
+			// zed: audit mode installs nothing, uninstall is a no-op,
+			// status reports the audit posture as healthy.
+			t.Run("ac_0_5_1_audit_mode", func(t *testing.T) {
 				var out bytes.Buffer
 				if err := a.Install(context.Background(), InstallOptions{Writer: &out}); err != nil {
 					t.Fatalf("install: %v", err)
 				}
-				if !strings.Contains(out.String(), "+") {
-					t.Errorf("install output must show the diff, got:\n%s", out.String())
+				if !strings.Contains(out.String(), "audit mode") {
+					t.Errorf("install output = %q, want the audit-mode statement", out.String())
 				}
-				if !strings.Contains(out.String(), a.HookEntry()) {
-					t.Errorf("install output must show the hook entry, got:\n%s", out.String())
-				}
-				st := StatusOf(a)
-				if !st.HookInstalled || st.Problem != "" {
-					t.Errorf("status after install = %+v, want installed and healthy", st)
-				}
-			})
-
-			// --- idempotency: second install changes nothing ---
-			t.Run("ac_0_5_1_install_idempotent", func(t *testing.T) {
-				target := spec.targetPath(dir)
-				first, err := os.ReadFile(target)
-				if err != nil {
-					t.Fatalf("read after first install: %v", err)
-				}
-				var out bytes.Buffer
-				if err := a.Install(context.Background(), InstallOptions{Writer: &out}); err != nil {
-					t.Fatalf("second install: %v", err)
-				}
-				if !strings.Contains(out.String(), "already installed") {
-					t.Errorf("second install output = %q, want an already-installed notice", out.String())
-				}
-				second, err := os.ReadFile(target)
-				if err != nil {
-					t.Fatalf("read after second install: %v", err)
-				}
-				if !bytes.Equal(first, second) {
-					t.Fatal("second install changed the file")
-				}
-			})
-
-			// --- dry run: shows the diff, writes nothing ---
-			t.Run("ac_0_5_1_dry_run", func(t *testing.T) {
-				fresh := spec.newAt(filepath.Join(dir, "dryrun"))
-				var out bytes.Buffer
-				if err := fresh.Install(context.Background(), InstallOptions{DryRun: true, Writer: &out}); err != nil {
-					t.Fatalf("dry-run install: %v", err)
-				}
-				if !strings.Contains(out.String(), "dry run") {
-					t.Errorf("output = %q, want a dry-run notice", out.String())
-				}
-				if target := spec.targetPath(filepath.Join(dir, "dryrun")); target != "" {
-					if _, err := os.Stat(target); !os.IsNotExist(err) {
-						t.Errorf("dry run must not create %s", target)
-					}
-				}
-			})
-
-			// --- corruption guard: refuses and preserves ---
-			t.Run("ac_0_5_1_corrupt_guard", func(t *testing.T) {
-				fresh := spec.newAt(filepath.Join(dir, "corrupt"))
-				target := spec.targetPath(filepath.Join(dir, "corrupt"))
-				if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-					t.Fatalf("mkdir: %v", err)
-				}
-				corrupt := "{broken json"
-				if spec.flavor == flavorShim {
-					corrupt = "// someone else's plugin file"
-				}
-				if err := os.WriteFile(target, []byte(corrupt), 0o600); err != nil {
-					t.Fatalf("write corrupt: %v", err)
-				}
-				err := fresh.Install(context.Background(), InstallOptions{Writer: io.Discard})
-				if err == nil {
-					t.Fatal("install must refuse a foreign/broken file")
-				}
-				want := "not a glove shim"
-				if spec.flavor == flavorJSON {
-					want = "not valid JSON"
-				}
-				if !strings.Contains(err.Error(), want) {
-					t.Errorf("error = %v, want it to mention %q", err, want)
-				}
-				got, rerr := os.ReadFile(target)
-				if rerr != nil || string(got) != corrupt {
-					t.Errorf("corrupt file modified by install: %q (%v)", got, rerr)
-				}
-				if _, serr := os.Stat(target + ".glove.bak"); !os.IsNotExist(serr) {
-					t.Error("no backup must be written for a refused install")
-				}
-			})
-
-			// --- uninstall: removes, idempotent ---
-			t.Run("ac_0_5_1_uninstall", func(t *testing.T) {
 				if err := a.Uninstall(context.Background()); err != nil {
 					t.Fatalf("uninstall: %v", err)
 				}
-				if st := StatusOf(a); st.HookInstalled {
-					t.Errorf("hook still present after uninstall: %+v", st)
+				st := StatusOf(a)
+				if st.Mode != ModeAudit {
+					t.Errorf("Mode = %q, want audit", st.Mode)
 				}
-				if err := a.Uninstall(context.Background()); err != nil {
-					t.Fatalf("second uninstall must be a no-op, got %v", err)
+				if st.HookInstalled {
+					t.Error("audit adapter must never report a hook installed")
+				}
+				if st.Problem != "" {
+					t.Errorf("audit posture must be healthy, got problem %q", st.Problem)
 				}
 			})
+			return // audit adapter: no config install phases
+		}
+
+		// --- install: diff, backup, idempotency ---
+		t.Run("ac_0_5_1_install", func(t *testing.T) {
+			var out bytes.Buffer
+			if err := a.Install(context.Background(), InstallOptions{Writer: &out}); err != nil {
+				t.Fatalf("install: %v", err)
+			}
+			if !strings.Contains(out.String(), "+") {
+				t.Errorf("install output must show the diff, got:\n%s", out.String())
+			}
+			if !strings.Contains(out.String(), a.HookEntry()) {
+				t.Errorf("install output must show the hook entry, got:\n%s", out.String())
+			}
+			st := StatusOf(a)
+			if !st.HookInstalled || st.Problem != "" {
+				t.Errorf("status after install = %+v, want installed and healthy", st)
+			}
+		})
+
+		// --- idempotency: second install changes nothing ---
+		t.Run("ac_0_5_1_install_idempotent", func(t *testing.T) {
+			target := spec.targetPath(dir)
+			first, err := os.ReadFile(target)
+			if err != nil {
+				t.Fatalf("read after first install: %v", err)
+			}
+			var out bytes.Buffer
+			if err := a.Install(context.Background(), InstallOptions{Writer: &out}); err != nil {
+				t.Fatalf("second install: %v", err)
+			}
+			if !strings.Contains(out.String(), "already installed") {
+				t.Errorf("second install output = %q, want an already-installed notice", out.String())
+			}
+			second, err := os.ReadFile(target)
+			if err != nil {
+				t.Fatalf("read after second install: %v", err)
+			}
+			if !bytes.Equal(first, second) {
+				t.Fatal("second install changed the file")
+			}
+		})
+
+		// --- dry run: shows the diff, writes nothing ---
+		t.Run("ac_0_5_1_dry_run", func(t *testing.T) {
+			fresh := spec.newAt(filepath.Join(dir, "dryrun"))
+			var out bytes.Buffer
+			if err := fresh.Install(context.Background(), InstallOptions{DryRun: true, Writer: &out}); err != nil {
+				t.Fatalf("dry-run install: %v", err)
+			}
+			if !strings.Contains(out.String(), "dry run") {
+				t.Errorf("output = %q, want a dry-run notice", out.String())
+			}
+			if target := spec.targetPath(filepath.Join(dir, "dryrun")); target != "" {
+				if _, err := os.Stat(target); !os.IsNotExist(err) {
+					t.Errorf("dry run must not create %s", target)
+				}
+			}
+		})
+
+		// --- corruption guard: refuses and preserves ---
+		t.Run("ac_0_5_1_corrupt_guard", func(t *testing.T) {
+			fresh := spec.newAt(filepath.Join(dir, "corrupt"))
+			target := spec.targetPath(filepath.Join(dir, "corrupt"))
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				t.Fatalf("mkdir: %v", err)
+			}
+			corrupt := "{broken json"
+			if spec.flavor == flavorShim {
+				corrupt = "// someone else's plugin file"
+			}
+			if err := os.WriteFile(target, []byte(corrupt), 0o600); err != nil {
+				t.Fatalf("write corrupt: %v", err)
+			}
+			err := fresh.Install(context.Background(), InstallOptions{Writer: io.Discard})
+			if err == nil {
+				t.Fatal("install must refuse a foreign/broken file")
+			}
+			want := "not a glove shim"
+			if spec.flavor == flavorJSON {
+				want = "not valid JSON"
+			}
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error = %v, want it to mention %q", err, want)
+			}
+			got, rerr := os.ReadFile(target)
+			if rerr != nil || string(got) != corrupt {
+				t.Errorf("corrupt file modified by install: %q (%v)", got, rerr)
+			}
+			if _, serr := os.Stat(target + ".glove.bak"); !os.IsNotExist(serr) {
+				t.Error("no backup must be written for a refused install")
+			}
+		})
+
+		// --- uninstall: removes, idempotent ---
+		t.Run("ac_0_5_1_uninstall", func(t *testing.T) {
+			if err := a.Uninstall(context.Background()); err != nil {
+				t.Fatalf("uninstall: %v", err)
+			}
+			if st := StatusOf(a); st.HookInstalled {
+				t.Errorf("hook still present after uninstall: %+v", st)
+			}
+			if err := a.Uninstall(context.Background()); err != nil {
+				t.Fatalf("second uninstall must be a no-op, got %v", err)
+			}
 		})
 	}
 }
@@ -657,6 +698,8 @@ func (s conformSpec) targetPath(dir string) string {
 		return filepath.Join(dir, "cursor", "hooks.json")
 	case "gemini":
 		return filepath.Join(dir, "gemini", "settings.json")
+	case "goose":
+		return filepath.Join(dir, "agents", "plugins", "glove", "hooks", "hooks.json")
 	default:
 		return "" // zed: audit mode writes nothing
 	}

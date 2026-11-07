@@ -87,6 +87,7 @@ Install guides: [docs/install/claude-code.md](docs/install/claude-code.md) and o
 | opencode | block / review / allow before execution | plugin shim (`tool.execute.before`, V1 plugin API) → `glove hook opencode` | `glove install opencode` |
 | cursor | block / review (as deny — no enforced ask) / allow before execution | `preToolUse` command hook with `failClosed: true` → `glove hook cursor` | `glove install cursor` |
 | gemini | block / review (as deny — no ask verb) / allow before execution | `BeforeTool` command hook (JSON deny + exit 2) → `glove hook gemini` | `glove install gemini` |
+| goose | block / review (as deny — goose hooks are allow/block only) / allow before execution | blocking `PreToolUse` plugin hook with `on_failure: "block"` → `glove hook goose` | `glove install goose` |
 | zed | audit only — Zed has no pre-tool hook surface | `glove hook zed` evaluates a tool call on demand + the audit log | `glove install zed` (no config change) |
 <!-- coverage-matrix:end -->
 

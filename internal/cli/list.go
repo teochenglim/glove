@@ -72,6 +72,12 @@ func matrixRows() []matrixRow {
 			Install:     "`glove install gemini`",
 		},
 		{
+			Agent:       "goose",
+			Enforcement: "block / review (as deny — goose hooks are allow/block only) / allow before execution",
+			Mechanism:   "blocking `PreToolUse` plugin hook with `on_failure: \"block\"` → `glove hook goose`",
+			Install:     "`glove install goose`",
+		},
+		{
 			Agent:       "zed",
 			Enforcement: "audit only — Zed has no pre-tool hook surface",
 			Mechanism:   "`glove hook zed` evaluates a tool call on demand + the audit log",

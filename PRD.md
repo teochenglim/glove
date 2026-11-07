@@ -675,6 +675,30 @@ Each `0.X.0` is independently shippable. `1.0.0` is purely the stability marker.
 
 ---
 
+### 0.10.0 — Goose: first-class enforcement adapter
+
+**Theme**: The ninth declared agent and seventh enforced one — goose (aaif-goose, the Linux-Foundation-governed agent) ships a native blocking `PreToolUse` hook (verified 2026-11-07 against issue #8742 → PRs #9093/#9304/#9468 and the hooks docs), so glove lands as a pure Go adapter with a fail-closed posture the vendor actually supports.
+
+**Deliverables**
+- `internal/adapter/goose.go` — plugin dir `~/.agents/plugins/glove/hooks/hooks.json` (user level) registering one `PreToolUse` rule: command `glove hook goose`, matcher unset (all tools), `timeout` tightened below the 30s default, `on_failure: "block"`; install shows diff + backup + idempotent; `disabledPlugins` in `~/.config/goose/settings.json` respected by doctor health
+- Wire adapter: stdin JSON (`event`, `session_id`, `tool_name`, `tool_input`, `working_dir`, `tool_call_id`) → engine → stdout decision JSON (`{"decision":"allow"}` / `{"decision":"block","reason":…}`); exit 2 + stderr reason for block; JSON-only stdout (stray stdout = no decision in goose)
+- Review renders as deny (goose hook decisions are allow/block only — no ask) — documented loudly; audit records `agent: "goose"` with the full Layer 0/1/2 + correlation + sink machinery
+- `hooks/hooks.json` golden + validity gate (goose skips a plugin's whole hooks.json on invalid values — the file must stay valid, doctor flags corruption)
+- `docs/install/goose.md` with the vendor caveats (fail-open default mitigated by `on_failure: block`; regex matcher not glob; SubagentStart/Stop never emitted — subagent coverage verified during implementation)
+- README coverage matrix row (7 enforced + zed audit-only); `glove list --matrix --check` extended
+
+**Acceptance tests**
+- [ ] goose passes the conformance suite (install diff/backup/idempotency, corruption refusal, uninstall, parse/render in goose's vocabulary, status health); the `Adapter` interface is unchanged
+- [ ] Live goose session: `rm -rf /` blocked (decision JSON block), `ls -la` allowed; clean-machine install ≤ 2 min per the docs (the live session is the user gate, recorded in RELEASE.md §5)
+- [ ] The registered PreToolUse action carries `on_failure: "block"` — a timed-out or crashing glove hook blocks the tool call (fail-closed), and the rendered hooks.json stays valid for goose's strict parser
+- [ ] Review renders as deny (documented in docs/install/goose.md); allow/block round-trip through goose's decision JSON, block also riding exit 2 + stderr
+- [ ] Every tool shape guards: shell commands chain-split + evaluated (Layer 0+1), write/edit/read paths hit protected globs, MCP tool args scanned
+- [ ] `docs/install/goose.md` complete (≤ 5 min flow); README coverage matrix machine-verified with goose enforced
+
+**Out of scope**: Stop-hook blocking (goose's turn-continuation hook — not a glove surface), APS/agent-identity layers (issue #8742 follow-ups), subagent lifecycle hooks (never emitted today).
+
+---
+
 ### 1.0.0 — Production Ready
 
 **Theme**: The version number *is* the release. No new code paths.
@@ -787,6 +811,7 @@ Consumed by the adapter layer. Each is a starting point, not exhaustive — veri
 | OpenCode | `tool.execute.before` | Kilocode lineage | Same as Kilocode | `~/.config/opencode/plugin/*.ts` (verify) |
 | Cursor | MCP tool calls | MCP protocol | via MCP wrapper | `~/.cursor/mcp.json` (verify) |
 | Gemini CLI | hook surface | JSON stdin/stdout | JSON | (verify during 0.8.0) |
+| Goose | `PreToolUse` (blocking; verified 2026-11-07 — issue #8742 → PRs #9093/#9304) | JSON stdin: `event`, `session_id`, `tool_name`, `tool_input`, `working_dir`, `tool_call_id` | stdout `{"decision":"allow"\|"block","reason"}`; exit 2 + stderr reason also blocks; anything else = no decision (fail-open unless `on_failure: "block"`) | `~/.agents/plugins/glove/hooks/hooks.json` (plugin dir); disabled via `disabledPlugins` in `~/.config/goose/settings.json` |
 | Zed | no pre-tool hook | n/a | audit-only via `PostToolUse`-equivalent or log file scan | n/a |
 
 **"Verify" means: check the Agent's current docs during that version's implementation. Adapter interface is designed so a protocol change touches one file.**

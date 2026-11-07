@@ -1,0 +1,11 @@
+{
+  "event": "PreToolUse",
+  "session_id": "conf-goose-1",
+  "tool_name": "shell",
+  "tool_input": {
+    "command": "ls -la",
+    "timeout_secs": 10
+  },
+  "working_dir": "/tmp/project",
+  "tool_call_id": "tc-goose-1"
+}

@@ -123,6 +123,10 @@ var shellTools = map[string]bool{
 	"sh":   true,
 	"bash": true,
 	"zsh":  true,
+	// goose's built-in shell tool (v0.10.0) — routing it through the chain
+	// splitter is strictly tighten-only: without this entry its payloads
+	// got the weaker non-shell path scan.
+	"shell": true,
 }
 
 // evaluateChain is Layer 0+1 for a shell command string: split into segments,

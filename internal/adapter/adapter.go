@@ -122,6 +122,8 @@ func For(name string) (Adapter, bool) {
 		return NewCursor(), true
 	case GeminiName:
 		return NewGemini(), true
+	case GooseName:
+		return NewGoose(), true
 	case ZedName:
 		return NewZed(), true
 	}
@@ -137,6 +139,7 @@ func Names() []string {
 		OpenCodeName,
 		CursorName,
 		GeminiName,
+		GooseName,
 		ZedName,
 	}
 }

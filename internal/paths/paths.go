@@ -155,3 +155,15 @@ func PolicyUserPath() string {
 	}
 	return filepath.Join(d, "policy.toml")
 }
+
+// GoosePluginDir is glove's goose plugin directory
+// (~/.agents/plugins/glove — goose discovers plugins there, verified
+// 2026-11-07 against the aaif-goose hooks docs, PRD §11).
+func GoosePluginDir() string {
+	return homeJoin(".agents", "plugins", "glove")
+}
+
+// GooseHooksPath is the hooks manifest goose loads from glove's plugin dir.
+func GooseHooksPath() string {
+	return filepath.Join(GoosePluginDir(), "hooks", "hooks.json")
+}
