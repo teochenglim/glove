@@ -12,7 +12,7 @@
 class Glove < Formula
   desc "Local guard for AI agent tool calls — allow / review / block before execution"
   homepage "https://github.com/teochenglim/glove"
-  version "0.9.1"
+  version "0.10.0"
   license "Apache-2.0"
 
   depends_on macos: :el_capitan
